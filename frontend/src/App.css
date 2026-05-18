@@ -1,0 +1,286 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background-color: #f0f2f5;
+  font-family: system-ui, -apple-system, sans-serif;
+  color: #333;
+}
+
+.kiosk-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 30px 20px;
+}
+
+.kiosk-header {
+  background-color: #2c3e50;
+  color: white;
+  padding: 20px 30px;
+  border-radius: 10px;
+  margin-bottom: 30px;
+}
+
+/* Onglets de catégories */
+.category-tabs {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 25px;
+  overflow-x: auto;
+  padding-bottom: 5px;
+}
+
+.tab-btn {
+  padding: 12px 20px;
+  font-size: 1em;
+  font-weight: 600;
+  background-color: #fff;
+  border: 1px solid #dcdde1;
+  border-radius: 8px;
+  cursor: pointer;
+  color: #2c3e50;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.tab-btn:hover {
+  background-color: #f5f6fa;
+  border-color: #2980b9;
+}
+
+.tab-btn.active {
+  background-color: #2980b9;
+  color: white;
+  border-color: #2980b9;
+  box-shadow: 0 4px 10px rgba(41, 128, 185, 0.2);
+}
+
+/* Recherche */
+.search-container {
+  margin-bottom: 30px;
+}
+
+.search-input {
+  width: 100%;
+  padding: 18px;
+  font-size: 1.2em;
+  border: 2px solid #ccc;
+  border-radius: 10px;
+  outline: none;
+}
+
+.search-input:focus {
+  border-color: #2980b9;
+}
+
+/* Grille */
+.product-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 20px;
+}
+
+.product-btn {
+  background-color: white;
+  border: 1px solid #e0e0e0;
+  border-radius: 12px;
+  padding: 25px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  cursor: pointer;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+}
+
+.product-btn:hover {
+  border-color: #2980b9;
+}
+
+.sku {
+  font-size: 0.8em;
+  color: #7f8c8d;
+  font-weight: bold;
+  margin-bottom: 5px;
+}
+
+.name {
+  font-size: 1.2em;
+  font-weight: bold;
+  color: #2c3e50;
+  margin-bottom: 12px;
+  text-align: center;
+}
+
+.category {
+  font-size: 0.8em;
+  background-color: #e1b12c;
+  color: white;
+  padding: 4px 12px;
+  border-radius: 50px;
+  font-weight: bold;
+}
+
+/* DISPOSITION DOUBLE COLONNE POUR LE STUDIO */
+.studio-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 30px;
+  align-items: start;
+}
+
+@media (max-width: 800px) {
+  .studio-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.print-card-studio, .preview-card-studio {
+  background-color: white;
+  border-radius: 12px;
+  padding: 30px;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+}
+
+.back-btn {
+  background: none;
+  border: none;
+  color: #2980b9;
+  font-weight: bold;
+  cursor: pointer;
+  margin-bottom: 20px;
+}
+
+.product-summary {
+  border-bottom: 2px solid #f5f6fa;
+  padding-bottom: 15px;
+  margin-bottom: 20px;
+}
+
+.print-badge {
+  background-color: #2c3e50;
+  color: white;
+  padding: 3px 10px;
+  border-radius: 4px;
+  font-size: 0.8em;
+  font-weight: bold;
+}
+
+.print-form {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.form-group label {
+  font-weight: bold;
+  color: #2c3e50;
+}
+
+.input-with-addon {
+  display: flex;
+}
+
+.form-input {
+  flex: 1;
+  padding: 12px;
+  font-size: 1.1em;
+  border: 2px solid #ccc;
+  border-radius: 6px 0 0 6px;
+  outline: none;
+}
+
+.input-addon {
+  background-color: #dcdde1;
+  padding: 12px 20px;
+  font-weight: bold;
+  border: 2px solid #ccc;
+  border-left: none;
+  border-radius: 0 6px 6px 0;
+}
+
+/* Sélecteur Quantité */
+.quantity-selector {
+  display: flex;
+  gap: 10px;
+}
+
+.qty-btn {
+  width: 45px;
+  height: 45px;
+  font-size: 1.5em;
+  background-color: #f5f6fa;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.qty-input {
+  width: 70px;
+  text-align: center;
+  font-size: 1.2em;
+  font-weight: bold;
+  border: 2px solid #ccc;
+  border-radius: 6px;
+}
+
+.submit-print-btn {
+  background-color: #27ae60;
+  color: white;
+  border: none;
+  padding: 15px;
+  font-size: 1.2em;
+  font-weight: bold;
+  border-radius: 8px;
+  cursor: pointer;
+  margin-top: 10px;
+}
+
+/* ZONE APERÇU ÉTIQUETTE ZEBRA */
+.preview-card-studio h4 {
+  color: #2c3e50;
+  margin-bottom: 20px;
+  font-size: 1.1em;
+}
+
+.zebra-label-container {
+  background-color: #636e72;
+  padding: 20px;
+  border-radius: 8px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 350px;
+}
+
+.zebra-label-img {
+  max-width: 100%;
+  height: auto;
+  background-color: white;
+  box-shadow: 0 10px 20px rgba(0,0,0,0.3);
+  border: 1px solid #000;
+}
+
+.preview-footnote {
+  text-align: center;
+  font-size: 0.85em;
+  color: #7f8c8d;
+  margin-top: 15px;
+  font-style: italic;
+}
+
+.no-results {
+  text-align: center;
+  padding: 30px;
+  background: white;
+  border-radius: 8px;
+  color: #7f8c8d;
+}

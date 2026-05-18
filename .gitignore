@@ -1,0 +1,16 @@
+# Django (Backend)
+venv/
+*.pyc
+__pycache__/
+db.sqlite3
+media/
+
+# React (Frontend)
+frontend/node_modules/
+frontend/dist/
+frontend/.env.local
+
+# Environnement et OS
+.DS_Store
+.vscode/
+Thumbs.db
