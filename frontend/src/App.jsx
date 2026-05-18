@@ -80,21 +80,41 @@ function App() {
   const handlePrintTest = (e) => {
     e.preventDefault()
     
-    let logMessage = `🖨️ [ORDRE ZEBRA SIMULÉ]\n----------------------------------\n`
-    logMessage += `Produit : ${selectedProduct.name}\n`
-    logMessage += `Mode : ${selectedProduct.input_mode}\n\n`
-    logMessage += `👉 ACTION EN COURS :\n`
-    logMessage += `• Le système va générer [ ${colisCount} ] numéros de lots uniques (colis).\n`
-    logMessage += `• Chaque colis sortira en [ ${labelsPerColis} ] exemplaire(s) (faces).\n\n`
-    logMessage += `📈 Total d'étiquettes imprimées : ${colisCount * labelsPerColis} étiquettes.`
-    
-    alert(logMessage)
+    // On récupère le poids ou le nombre de packs selon le mode du produit
+    let currentInputValue = '';
+    if (selectedProduct.input_mode === 'WEIGHT') currentInputValue = weight;
+    if (selectedProduct.input_mode === 'PACK_COUNT') currentInputValue = packCount;
 
-    // Reset des compteurs et retour au catalogue
-    setColisCount(1)
-    setLabelsPerColis(1)
-    setSelectedProduct(null)
-    setSearchTerm('')
+    // Envoi des données vers le serveur Django local
+    fetch('http://127.0.0.1:8000/api/print-usb/', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        product_id: selectedProduct.id,
+        value: currentInputValue,
+        colis_count: colisCount,
+        labels_per_colis: labelsPerColis
+      })
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.status === 'success') {
+        alert(`✅ Succès : ${data.message}`);
+        // On nettoie l'écran après l'impression
+        setSelectedProduct(null);
+        setSearchTerm('');
+        setColisCount(1);
+        setLabelsPerColis(1);
+      } else {
+        alert(`❌ Erreur : ${data.error || data.message}`);
+      }
+    })
+    .catch(err => {
+      console.error(err);
+      alert("❌ Impossible de communiquer avec le serveur d'impression.");
+    });
   }
 
   if (loading) {
