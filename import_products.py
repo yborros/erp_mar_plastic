@@ -5,8 +5,10 @@ import django
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'backend.settings')
 django.setup()
 
+# Importation complète des modèles nécessaires
 from printing.models import Product, Category, Unit
-# Ta liste brute de sachets (Syntaxe corrigée pour Python)
+
+# Ta liste brute de sachets
 donnees_sachets = """
 "SSC100P-PE001";"SACHET IMPRIME HONYWELL 18,2X32,5(36,5)";"FAM0011";"1"
 "SSC150P-PE001";"SACHET \"ANNAIM\" 10KG";"FAM0011";"2"
@@ -141,7 +143,7 @@ donnees_sachets = """
 "SSC40-PE030";"SACHET NEUTRE 23x35";"FAM0014";"1"
 "SSC40-PE031";"SACHET NEUTRE 25x35";"FAM0014";"1"
 "SSC40-PE032";"SACHET NEUTRE 26x35";"FAM0014";"1"
-"SSC40-PE033";"SACHET NEUTRE 28x35";"FAM0014";"1"
+"SSC40-PE033";"SACHRE NEUTRE 28x35";"FAM0014";"1"
 "SSC40-PE034";"SACHET NEUTRE 28x45";"FAM0014";"1"
 "SSC40-PE035";"SACHET NEUTRE 30x40";"FAM0014";"1"
 "SSC40-PE036";"SACHET NEUTRE 32x45 A";"FAM0014";"1"
@@ -400,9 +402,9 @@ donnees_sachets = """
 "SSC40P-PE137";"SACHET \"KAPORAL\" 40X50";"FAM0011";"1"
 "SSC40P-PE138";"SACHET \"SPAGNOLO\" 30X38 (42)";"FAM0011";"1"
 "SSC40P-PE139";"SACHET \"MANIA JEAN'S\" 35X65";"FAM0011";"1"
-"SSC40P-PE140";"SACHET IMPRIME\"BEDA\" 30X45(50)";"FAM0011";"1"
-"SSC40P-PE141";"SACHET IMPRIME\"BEDA\" 25X41(45)";"FAM0011";"1"
-"SSC40P-PE142";"SACHET IMPRIME\"FEER\" 22X41(44)";"FAM0011";"1"
+"SSC40P-PE140";"SACHET IMPRIME \"BEDA\" 30X45(50)";"FAM0011";"1"
+"SSC40P-PE141";"SACHET IMPRIME \"BEDA\" 25X41(45)";"FAM0011";"1"
+"SSC40P-PE142";"SACHET IMPRIME \"FEER\" 22X41(44)";"FAM0011";"1"
 "SSC40P-PE143";"SACHET \"COTON PLUS\" 100gr ROUGE";"FAM0011";"2"
 "SSC40P-PE144";"SACHET IMPRIME 30x45(50)";"FAM0011";"1"
 "SSC40P-PE145";"SACHET IMPRIME CASTRO 35x45(50)";"FAM0011";"1"
@@ -609,7 +611,7 @@ donnees_sachets = """
 """
 
 try:
-    # Changement ici : Recherche sans tenir compte de la casse exacte de "Sachet", "U" ou "Kg"
+    # Récupération insensible à la casse
     categorie_existante = Category.objects.get(name__iexact="Sachet")
     unite_u = Unit.objects.filter(abbreviation__iexact="U").first()
     unite_kg = Unit.objects.filter(abbreviation__iexact="Kg").first()
@@ -618,13 +620,13 @@ try:
         raise Unit.DoesNotExist
         
 except Category.DoesNotExist:
-    print("❌ Erreur : La catégorie 'Sachet' n'existe pas dans l'admin.")
+    print("❌ Erreur : La catégorie 'Sachet' n'existe pas dans l'admin. Crée-la d'abord !")
     exit()
 except Unit.DoesNotExist:
-    print("❌ Erreur : Impossible de trouver l'unité 'U' ou 'Kg' dans l'admin.")
+    print("❌ Erreur : Impossible de trouver l'unité 'U' ou 'Kg' dans l'admin. Vérifie tes symboles !")
     exit()
 
-print("📦 Récupération validée. Début de l'injection...")
+print("📦 Récupération validée. Début de l'injection des sachets...")
 compteur_produits = 0
 
 for ligne in donnees_sachets.strip().split('\n'):
@@ -637,26 +639,22 @@ for ligne in donnees_sachets.strip().split('\n'):
         name_clean = parts[1].strip().replace('"', '').replace('  ', ' ')
         mode_code = parts[3].strip().replace('"', '')
         
-        if mode_code == "1":
-            unite_choisie = unite_u
-            input_mode_produit = "PACK_COUNT"
-        elif mode_code == "2":
+        # Choix de l'unité configurée dans l'admin
+        if mode_code == "2":
             unite_choisie = unite_kg
-            input_mode_produit = "WEIGHT"
         else:
             unite_choisie = unite_u
-            input_mode_produit = "PACK_COUNT"
             
+        # Création ou mise à jour sécurisée (sans le champ input_mode rejeté)
         product, created = Product.objects.update_or_create(
             sku=sku_clean,
             defaults={
                 'name': name_clean,
                 'category': categorie_existante,
-                'unit': unite_choisie,
-                'input_mode': input_mode_produit
+                'unit': unite_choisie
             }
         )
         if created:
             compteur_produits += 1
 
-print(f"✅ Terminé ! {compteur_produits} sachets importés.")
+print(f"✅ Terminé ! {compteur_produits} sachets importés proprement.")
