@@ -4,6 +4,7 @@ import './App.css'
 function App() {
   const [products, setProducts] = useState([])
   const [categories, setCategories] = useState([])
+  const [clients, setClients] = useState([]) // <-- Nouvel état pour stocker la liste des clients
   const [filteredProducts, setFilteredProducts] = useState([])
   
   // États pour les filtres
@@ -13,25 +14,27 @@ function App() {
 
   // États pour la saisie de production
   const [selectedProduct, setSelectedProduct] = useState(null)
+  const [selectedClient, setSelectedClient] = useState(null) // <-- Stocke l'objet client complet sélectionné
   const [weight, setWeight] = useState('15.50')
   const [packCount, setPackCount] = useState('500')
   
-  // --- NOS DEUX NOUVEAUX COMPTEURS INDUSTRIELS ---
+  // Compteurs industriels
   const [colisCount, setColisCount] = useState(1)       // Nombre de lots uniques
   const [labelsPerColis, setLabelsPerColis] = useState(1) // Nombre de faces (doublons)
 
- // Chargement des données Django
+  // Chargement des données Django
   useEffect(() => {
-    // On détecte dynamiquement l'IP (que ce soit localhost ou l'IP Tailscale 100.x.x.x)
     const API_BASE = `http://${window.location.hostname}:8000`;
 
     Promise.all([
       fetch(`${API_BASE}/api/products/`).then(res => res.json()),
-      fetch(`${API_BASE}/api/categories/`).then(res => res.json())
+      fetch(`${API_BASE}/api/categories/`).then(res => res.json()),
+      fetch(`${API_BASE}/api/clients/`).then(res => res.json()) // <-- Chargement des clients depuis l'API
     ])
-    .then(([productsData, categoriesData]) => {
+    .then(([productsData, categoriesData, clientsData]) => {
       setProducts(productsData)
       setCategories(categoriesData)
+      setClients(clientsData) // <-- Sauvegarde dans l'état
       setFilteredProducts(productsData)
       setLoading(false)
     })
@@ -49,7 +52,7 @@ function App() {
     setFilteredProducts(results)
   }, [searchTerm, activeCategory, products])
 
-  // Générateur de code ZPL injecté
+  // Générateur de code ZPL injecté (pour l'aperçu Labelary à droite)
   const getZPLTemplate = () => {
     if (!selectedProduct || !selectedProduct.zpl_template) return '';
     
@@ -61,15 +64,18 @@ function App() {
     if (selectedProduct.input_mode === 'WEIGHT') currentInputValue = weight;
     if (selectedProduct.input_mode === 'PACK_COUNT') currentInputValue = packCount;
 
-    // Remplacement des variables
+    // Remplacement des variables du produit
     zpl = zpl.replace(/{NAME}/g, selectedProduct.name);
     zpl = zpl.replace(/{SKU}/g, selectedProduct.sku);
     zpl = zpl.replace(/{LOT}/g, lotSimule);
     zpl = zpl.replace(/{VALUE}/g, currentInputValue);
     zpl = zpl.replace(/{UNIT}/g, selectedProduct.unit_symbol);
     
-    // CHAÎNE MAGIQUE : On injecte la commande ^PQ (Print Quantity) juste avant la fin (^XZ)
-    // Cela dit à la Zebra : "Imprime ce lot X fois avant de passer à autre chose"
+    // Remplacement dynamique des variables du client sur l'aperçu visuel
+    zpl = zpl.replace(/{CLIENT_NAME}/g, selectedClient ? selectedClient.nom : '');
+    zpl = zpl.replace(/{CLIENT_NUM}/g, selectedClient ? selectedClient.numero_client : '');
+    
+    // Injection quantité
     if (labelsPerColis > 1) {
       zpl = zpl.replace('^XZ', `^PQ${labelsPerColis}^XZ`);
     }
@@ -79,8 +85,8 @@ function App() {
 
   const previewImageUrl = selectedProduct ? `http://api.labelary.com/v1/printers/8dpmm/labels/3.94x3.15/0/${getZPLTemplate()}` : ''
 
-  // Simulation du clic de validation
- const handlePrintTest = (e) => {
+  // Envoi de la demande d'impression réelle ou simulée
+  const handlePrintTest = (e) => {
     e.preventDefault()
     
     let currentInputValue = '';
@@ -89,7 +95,7 @@ function App() {
 
     const API_BASE = `http://${window.location.hostname}:8000`;
 
-    // Appel dynamique
+    // Appel à l'API
     fetch(`${API_BASE}/api/print/`, {
       method: 'POST',
       headers: {
@@ -99,7 +105,9 @@ function App() {
         product_id: selectedProduct.id,
         value: currentInputValue,
         colis_count: colisCount,
-        labels_per_colis: labelsPerColis
+        labels_per_colis: labelsPerColis,
+        client_name: selectedClient ? selectedClient.nom : '',          // <-- Injecté vers Django
+        client_num: selectedClient ? selectedClient.numero_client : ''   // <-- Injecté vers Django
       })
     })
     .then(res => res.json())
@@ -107,6 +115,7 @@ function App() {
       if (data.status === 'success') {
         alert(`✅ Succès : ${data.message}`);
         setSelectedProduct(null);
+        setSelectedClient(null); // Remplacement à l'état initial
         setSearchTerm('');
         setColisCount(1);
         setLabelsPerColis(1);
@@ -118,6 +127,17 @@ function App() {
       console.error(err);
       alert("❌ Impossible de communiquer avec le serveur d'impression.");
     });
+  }
+
+  // Changement de client via la liste déroulante
+  const handleClientChange = (e) => {
+    const clientId = e.target.value;
+    if (!clientId) {
+      setSelectedClient(null); // Option "aucun" -> espace blanc
+    } else {
+      const foundClient = clients.find(c => c.id === parseInt(clientId));
+      setSelectedClient(foundClient);
+    }
   }
 
   if (loading) {
@@ -173,7 +193,7 @@ function App() {
           
           {/* Formulaire à gauche */}
           <div className="print-card-studio">
-            <button className="back-btn" onClick={() => setSelectedProduct(null)}>⬅ Changer de produit</button>
+            <button className="back-btn" onClick={() => { setSelectedProduct(null); setSelectedClient(null); }}>⬅ Changer de produit</button>
             
             <div className="product-summary">
               <span className="print-badge">{selectedProduct.category_name}</span>
@@ -182,6 +202,25 @@ function App() {
             </div>
 
             <form onSubmit={handlePrintTest} className="print-form">
+              
+              {/* SÉLECTEUR DE CLIENT */}
+              <div className="form-group">
+                <label style={{ fontWeight: 'bold', color: '#2c3e50' }}>Destinataire / Client :</label>
+                <select 
+                  className="form-input" 
+                  value={selectedClient ? selectedClient.id : ''} 
+                  onChange={handleClientChange}
+                  style={{ backgroundColor: '#f8f9fa', cursor: 'pointer' }}
+                >
+                  <option value="">— Aucun (Espace blanc) —</option>
+                  {clients.map(client => (
+                    <option key={client.id} value={client.id}>
+                      {client.numero_client} - {client.nom}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               {selectedProduct.input_mode === 'WEIGHT' && (
                 <div className="form-group">
                   <label>Poids du produit :</label>
@@ -223,7 +262,7 @@ function App() {
               </div>
 
               <button type="submit" className="submit-print-btn">
-                🖨️ SIMULER L'IMPRESSION ZEBRA
+                🖨️ IMPRIMER L'ÉTIQUETTE
               </button>
             </form>
           </div>
@@ -232,9 +271,13 @@ function App() {
           <div className="preview-card-studio">
             <h4>👁 Rendu de l'étiquette (Format réel 100x80 mm) :</h4>
             <div className="zebra-label-container">
-              <img src={previewImageUrl} alt="Rendu Zebra" className="zebra-label-img" />
+              {previewImageUrl ? (
+                <img src={previewImageUrl} alt="Rendu Zebra" className="zebra-label-img" />
+              ) : (
+                <div style={{ padding: '20px', color: '#95a5a6' }}>Génération de l'aperçu...</div>
+              )}
             </div>
-            <p className="preview-footnote">Le visuel s'ajuste dynamiquement à vos données de gauche.</p>
+            <p className="preview-footnote">Le visuel s'ajuste dynamiquement à vos données de gauche (y compris le client).</p>
           </div>
 
         </div>
