@@ -25,8 +25,12 @@ SECRET_KEY = 'django-insecure-p4+mlxt_1=ni*u&w#faxff5pids*n9a0(uxj&xn+$o$k974a5+
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
-
+ALLOWED_HOSTS = [
+    '127.0.0.1',
+    'localhost',
+    '.tailscale.net',  # Autorise les noms de domaine Tailscale
+    '100.*',           # Autorise toutes les IPs de ton réseau Tailscale
+]
 
 # Application definition
 

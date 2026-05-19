@@ -20,11 +20,14 @@ function App() {
   const [colisCount, setColisCount] = useState(1)       // Nombre de lots uniques
   const [labelsPerColis, setLabelsPerColis] = useState(1) // Nombre de faces (doublons)
 
-  // Chargement des données Django
+ // Chargement des données Django
   useEffect(() => {
+    // On détecte dynamiquement l'IP (que ce soit localhost ou l'IP Tailscale 100.x.x.x)
+    const API_BASE = `http://${window.location.hostname}:8000`;
+
     Promise.all([
-      fetch('http://127.0.0.1:8000/api/products/').then(res => res.json()),
-      fetch('http://127.0.0.1:8000/api/categories/').then(res => res.json())
+      fetch(`${API_BASE}/api/products/`).then(res => res.json()),
+      fetch(`${API_BASE}/api/categories/`).then(res => res.json())
     ])
     .then(([productsData, categoriesData]) => {
       setProducts(productsData)
@@ -77,16 +80,17 @@ function App() {
   const previewImageUrl = selectedProduct ? `http://api.labelary.com/v1/printers/8dpmm/labels/3.94x3.15/0/${getZPLTemplate()}` : ''
 
   // Simulation du clic de validation
-  const handlePrintTest = (e) => {
+ const handlePrintTest = (e) => {
     e.preventDefault()
     
-    // On récupère le poids ou le nombre de packs selon le mode du produit
     let currentInputValue = '';
     if (selectedProduct.input_mode === 'WEIGHT') currentInputValue = weight;
     if (selectedProduct.input_mode === 'PACK_COUNT') currentInputValue = packCount;
 
-    // Envoi des données vers le serveur Django local
-    fetch('http://127.0.0.1:8000/api/print-usb/', {
+    const API_BASE = `http://${window.location.hostname}:8000`;
+
+    // Appel dynamique
+    fetch(`${API_BASE}/api/print/`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -102,7 +106,6 @@ function App() {
     .then(data => {
       if (data.status === 'success') {
         alert(`✅ Succès : ${data.message}`);
-        // On nettoie l'écran après l'impression
         setSelectedProduct(null);
         setSearchTerm('');
         setColisCount(1);

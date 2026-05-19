@@ -14,3 +14,4 @@ frontend/.env.local
 .DS_Store
 .vscode/
 Thumbs.db
+.env

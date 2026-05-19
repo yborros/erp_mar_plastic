@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Unit, Category, Workstation, LabelTemplate, Product, PrintJob
+from .models import Unit, Category, Workstation, LabelTemplate, Product, PrintJob, ConfigurationImprimante
 
 @admin.register(Unit)
 class UnitAdmin(admin.ModelAdmin):
@@ -25,3 +25,7 @@ class ProductAdmin(admin.ModelAdmin):
 @admin.register(PrintJob)
 class PrintJobAdmin(admin.ModelAdmin):
     list_display = ('lot_number', 'product', 'timestamp')
+
+@admin.register(ConfigurationImprimante)
+class ConfigurationImprimanteAdmin(admin.ModelAdmin):
+    list_display = ('code_poste', 'nom_emplacement', 'mode_connexion', 'nom_systeme_windows', 'adresse_ip')

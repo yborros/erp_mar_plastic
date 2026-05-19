@@ -93,3 +93,39 @@ class PrintJob(models.Model):
     recorded_pack_count = models.PositiveIntegerField(blank=True, null=True)
     quantity_printed = models.PositiveIntegerField(default=1)
     timestamp = models.DateTimeField(default=timezone.now)
+
+class ConfigurationImprimante(models.Model):
+    MODE_CHOICES = [
+        ('USB', 'Connexion USB (Locale)'),
+        ('RESEAU', 'Connexion Réseau (IP)'),
+        ('DESACTIVE', 'Pas d\'imprimante (Simulé / Mode Test)'),
+    ]
+    
+    # La "carte d'identité" qui fera le lien avec le fichier .env du PC
+    code_poste = models.CharField(
+        max_length=50, 
+        unique=True, 
+        help_text="Ex: PC_LAPTOP, PC_BUREAU, PC_ATELIER_1. Doit correspondre au .env"
+    )
+    nom_emplacement = models.CharField(max_length=100, help_text="Ex: Bureau de Yaniv, Ligne Conditionnement")
+    
+    mode_connexion = models.CharField(max_length=15, choices=MODE_CHOICES, default='USB')
+    
+    # Paramètres USB
+    nom_systeme_windows = models.CharField(
+        max_length=255, 
+        default="ZDesigner ZM400 200 dpi (ZPL)",
+        blank=True,
+        help_text="Nom exact de l'imprimante sous Windows (requis si mode USB)"
+    )
+    
+    # Paramètres Réseau
+    adresse_ip = models.GenericIPAddressField(default="192.168.100.200", blank=True, null=True)
+    port_reseau = models.IntegerField(default=9100, help_text="Par défaut 9100 pour les Zebra")
+
+    class Meta:
+        verbose_name = "Configuration Imprimante Poste"
+        verbose_name_plural = "Configuration Imprimantes Postes"
+
+    def __str__(self):
+        return f"{self.nom_emplacement} ({self.code_poste}) -> {self.mode_connexion}"
