@@ -8,7 +8,6 @@ function App() {
   const [filteredProducts, setFilteredProducts] = useState([])
   
   // --- SYSTÈME DE FAVORIS ---
-  // On charge les favoris existants du navigateur, ou une liste vide si c'est la première fois
   const [favorites, setFavorites] = useState(() => {
     const saved = localStorage.getItem('mar_plastic_favs');
     return saved ? JSON.parse(saved) : [];
@@ -63,13 +62,12 @@ function App() {
       return matchesSearch && matchesCategory
     });
 
-    // LOGIQUE DE TRI : On place les favoris tout en haut de la liste
     const sortedResults = [...results].sort((a, b) => {
       const aIsFav = favorites.includes(a.id);
       const bIsFav = favorites.includes(b.id);
-      if (aIsFav && !bIsFav) return -1; // a passe devant
-      if (!aIsFav && bIsFav) return 1;  // b passe devant
-      return 0; // On garde l'ordre si les deux sont favs ou aucun
+      if (aIsFav && !bIsFav) return -1;
+      if (!aIsFav && bIsFav) return 1;
+      return 0;
     });
 
     setFilteredProducts(sortedResults)
@@ -77,16 +75,17 @@ function App() {
 
   // Gestion du clic sur l'étoile
   const toggleFavorite = (e, productId) => {
-    e.stopPropagation(); // Empêche d'ouvrir l'écran d'impression quand on clique juste sur l'étoile
+    e.stopPropagation();
     if (favorites.includes(productId)) {
-      setFavorites(favorites.filter(id => id !== productId)); // Enlever des favoris
+      setFavorites(favorites.filter(id => id !== productId));
     } else {
-      setFavorites([...favorites, productId]); // Ajouter aux favoris
+      setFavorites([...favorites, productId]);
     }
   };
 
   // Filtrage et Tri Alphabétique des clients
   const getFilteredAndSortedClients = () => {
+    if (!clientSearchTerm) return []; // N'affiche rien si l'opérateur n'a rien tapé
     return clients
       .filter(client => 
         client.nom.toLowerCase().includes(clientSearchTerm.toLowerCase())
@@ -110,7 +109,7 @@ function App() {
     zpl = zpl.replace(/{SKU}/g, selectedProduct.sku);
     zpl = zpl.replace(/{LOT}/g, lotSimule);
     zpl = zpl.replace(/{VALUE}/g, currentInputValue);
-    zpl = zpl.replace(/{UNIT}/g, selectedProduct.unit_symbol);
+    zpl = zpl.replace(/{UNIT}/g, selectedProduct.unit_symbol || '');
     
     zpl = zpl.replace(/{CLIENT_NAME}/g, selectedClient ? selectedClient.nom : '');
     zpl = zpl.replace(/{CLIENT_NUM}/g, selectedClient ? selectedClient.numero_client : '');
@@ -168,16 +167,6 @@ function App() {
     });
   }
 
-  const handleClientChange = (e) => {
-    const clientId = e.target.value;
-    if (!clientId) {
-      setSelectedClient(null); 
-    } else {
-      const foundClient = clients.find(c => c.id === parseInt(clientId));
-      setSelectedClient(foundClient);
-    }
-  }
-
   if (loading) {
     return <h2 style={{ textAlign: 'center', marginTop: '50px' }}>Chargement du studio d'impression...</h2>
   }
@@ -222,7 +211,6 @@ function App() {
               const isFav = favorites.includes(product.id);
               return (
                 <button key={product.id} className={`product-btn ${isFav ? 'has-fav' : ''}`} onClick={() => setSelectedProduct(product)}>
-                  {/* Bouton Étoile de favori */}
                   <span 
                     className={`fav-star ${isFav ? 'is-active' : ''}`} 
                     onClick={(e) => toggleFavorite(e, product.id)}
@@ -255,46 +243,65 @@ function App() {
 
             <form onSubmit={handlePrintTest} className="print-form">
               
-              {/* ZONE CLIENT RECHERCHE + SÉLECTION */}
-              <div className="form-group" style={{ background: '#fcfcfc', padding: '12px', borderRadius: '6px', border: '1px solid #eaeaea' }}>
-                <label style={{ fontWeight: 'bold', color: '#2c3e50', display: 'block', marginBottom: '6px' }}>Destinataire / Client :</label>
+              {/* ZONE CLIENT TOTALEMENT CORRIGÉE ET FLUIDE */}
+              <div className="form-group" style={{ background: '#fcfcfc', padding: '15px', borderRadius: '8px', border: '1px solid #eaeaea' }}>
+                <label style={{ fontWeight: 'bold', color: '#2c3e50', display: 'block', marginBottom: '8px' }}>Destinataire / Client :</label>
                 
-                <input 
-                  type="text"
-                  placeholder="🔍 Taper le nom du client..."
-                  value={clientSearchTerm}
-                  onChange={(e) => setClientSearchTerm(e.target.value)}
-                  className="form-input"
-                  style={{ marginBottom: '8px', fontSize: '14px', height: '36px' }}
-                />
-
-                <select 
-                  className="form-input" 
-                  value={selectedClient ? selectedClient.id : ''} 
-                  onChange={handleClientChange}
-                  style={{ backgroundColor: '#ffffff', cursor: 'pointer' }}
-                >
-                  <option value="">— Aucun (Espace blanc) —</option>
-                  {sortedAndFilteredClients.map(client => (
-                    <option key={client.id} value={client.id}>
-                      {client.nom}
-                    </option>
-                  ))}
-                </select>
-
-                {clientSearchTerm && (
-                  <span style={{ fontSize: '11px', color: '#7f8c8d', display: 'block', marginTop: '4px', fontStyle: 'italic' }}>
-                    {sortedAndFilteredClients.length} client(s) correspondant(s)
-                  </span>
+                {!selectedClient ? (
+                  <>
+                    <input 
+                      type="text"
+                      placeholder="🔍 Rechercher un client (ex: BUROPA)..."
+                      value={clientSearchTerm}
+                      onChange={(e) => setClientSearchTerm(e.target.value)}
+                      className="form-input"
+                      style={{ borderRadius: '6px', fontSize: '15px', height: '42px', width: '100%' }}
+                    />
+                    
+                    {/* Liste de suggestions sous forme de boutons rapides de A à Z */}
+                    {clientSearchTerm && (
+                      <div style={{ maxHeight: '160px', overflowY: 'auto', marginTop: '8px', border: '1px solid #ddd', borderRadius: '6px', background: '#fff' }}>
+                        {sortedAndFilteredClients.length > 0 ? (
+                          sortedAndFilteredClients.map(client => (
+                            <button
+                              key={client.id}
+                              type="button"
+                              onClick={() => { setSelectedClient(client); setClientSearchTerm(''); }}
+                              style={{ width: '100%', padding: '10px 15px', textAlign: 'left', background: 'none', border: 'none', borderBottom: '1px solid #f5f5f5', cursor: 'pointer', color: '#333', fontSize: '14px' }}
+                              onMouseEnter={(e) => e.target.style.background = '#f5f6fa'}
+                              onMouseLeave={(e) => e.target.style.background = 'none'}
+                            >
+                              {client.nom}
+                            </button>
+                          ))
+                        ) : (
+                          <div style={{ padding: '10px', color: '#7f8c8d', fontSize: '13px', fontStyle: 'italic' }}>Aucun client trouvé</div>
+                        )}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  /* Affichage propre une fois le client choisi */
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#e1f5fe', padding: '10px 15px', borderRadius: '6px', border: '1px solid #b3e5fc' }}>
+                    <span style={{ fontWeight: 'bold', color: '#0288d1', fontSize: '15px' }}>{selectedClient.nom}</span>
+                    <button 
+                      type="button" 
+                      onClick={() => setSelectedClient(null)} 
+                      style={{ background: '#e53935', color: '#fff', border: 'none', padding: '4px 10px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}
+                    >
+                      Changer
+                    </button>
+                  </div>
                 )}
               </div>
 
+              {/* CORRECTION DES BLOCS DE QUANTITÉ COMPATIBLES AVEC L'IMPORT DE L'ADMIN */}
               {selectedProduct.input_mode === 'WEIGHT' && (
                 <div className="form-group">
                   <label>Poids du produit :</label>
                   <div className="input-with-addon">
                     <input type="number" step="0.01" value={weight} onChange={(e) => setWeight(e.target.value)} className="form-input" required />
-                    <span className="input-addon">{selectedProduct.unit_symbol}</span>
+                    <span className="input-addon">{selectedProduct.unit_symbol || 'Kg'}</span>
                   </div>
                 </div>
               )}
@@ -304,7 +311,7 @@ function App() {
                   <label>Unités par carton :</label>
                   <div className="input-with-addon">
                     <input type="number" value={packCount} onChange={(e) => setPackCount(e.target.value)} className="form-input" required />
-                    <span className="input-addon">U</span>
+                    <span className="input-addon">{selectedProduct.unit_symbol || 'U'}</span>
                   </div>
                 </div>
               )}
