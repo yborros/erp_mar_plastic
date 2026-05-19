@@ -85,7 +85,7 @@ function App() {
 
   // Filtrage et Tri Alphabétique des clients
   const getFilteredAndSortedClients = () => {
-    if (!clientSearchTerm) return []; // N'affiche rien si l'opérateur n'a rien tapé
+    if (!clientSearchTerm) return [];
     return clients
       .filter(client => 
         client.nom.toLowerCase().includes(clientSearchTerm.toLowerCase())
@@ -101,9 +101,9 @@ function App() {
     const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
     const lotSimule = `MP-${today}-REEL`;
     
-    let currentInputValue = '';
-    if (selectedProduct.input_mode === 'WEIGHT') currentInputValue = weight;
-    if (selectedProduct.input_mode === 'PACK_COUNT') currentInputValue = packCount;
+    // Détection par symbole pour le rendu ZPL
+    const estPoids = selectedProduct.unit_symbol?.toLowerCase() === 'kg';
+    const currentInputValue = estPoids ? weight : packCount;
 
     zpl = zpl.replace(/{NAME}/g, selectedProduct.name);
     zpl = zpl.replace(/{SKU}/g, selectedProduct.sku);
@@ -127,9 +127,8 @@ function App() {
   const handlePrintTest = (e) => {
     e.preventDefault()
     
-    let currentInputValue = '';
-    if (selectedProduct.input_mode === 'WEIGHT') currentInputValue = weight;
-    if (selectedProduct.input_mode === 'PACK_COUNT') currentInputValue = packCount;
+    const estPoids = selectedProduct.unit_symbol?.toLowerCase() === 'kg';
+    const currentInputValue = estPoids ? weight : packCount;
 
     const API_BASE = `http://${window.location.hostname}:8000`;
 
@@ -172,6 +171,9 @@ function App() {
   }
 
   const sortedAndFilteredClients = getFilteredAndSortedClients();
+  
+  // Détection ultra-fiable basée sur le symbole de l'unité reçu de Django
+  const estProduitAuPoids = selectedProduct?.unit_symbol?.toLowerCase() === 'kg';
 
   return (
     <div className="kiosk-container">
@@ -243,7 +245,7 @@ function App() {
 
             <form onSubmit={handlePrintTest} className="print-form">
               
-              {/* ZONE CLIENT TOTALEMENT CORRIGÉE ET FLUIDE */}
+              {/* ZONE CLIENT */}
               <div className="form-group" style={{ background: '#fcfcfc', padding: '15px', borderRadius: '8px', border: '1px solid #eaeaea' }}>
                 <label style={{ fontWeight: 'bold', color: '#2c3e50', display: 'block', marginBottom: '8px' }}>Destinataire / Client :</label>
                 
@@ -258,7 +260,6 @@ function App() {
                       style={{ borderRadius: '6px', fontSize: '15px', height: '42px', width: '100%' }}
                     />
                     
-                    {/* Liste de suggestions sous forme de boutons rapides de A à Z */}
                     {clientSearchTerm && (
                       <div style={{ maxHeight: '160px', overflowY: 'auto', marginTop: '8px', border: '1px solid #ddd', borderRadius: '6px', background: '#fff' }}>
                         {sortedAndFilteredClients.length > 0 ? (
@@ -281,7 +282,6 @@ function App() {
                     )}
                   </>
                 ) : (
-                  /* Affichage propre une fois le client choisi */
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#e1f5fe', padding: '10px 15px', borderRadius: '6px', border: '1px solid #b3e5fc' }}>
                     <span style={{ fontWeight: 'bold', color: '#0288d1', fontSize: '15px' }}>{selectedClient.nom}</span>
                     <button 
@@ -295,18 +295,16 @@ function App() {
                 )}
               </div>
 
-              {/* CORRECTION DES BLOCS DE QUANTITÉ COMPATIBLES AVEC L'IMPORT DE L'ADMIN */}
-              {selectedProduct.input_mode === 'WEIGHT' && (
+              {/* DÉTECTION ROBUSTE DE LA CASE A AFFICHER (Basée sur le symbole Kg ou U de l'admin) */}
+              {estProduitAuPoids ? (
                 <div className="form-group">
                   <label>Poids du produit :</label>
                   <div className="input-with-addon">
                     <input type="number" step="0.01" value={weight} onChange={(e) => setWeight(e.target.value)} className="form-input" required />
-                    <span className="input-addon">{selectedProduct.unit_symbol || 'Kg'}</span>
+                    <span className="input-addon">{selectedProduct.unit_symbol}</span>
                   </div>
                 </div>
-              )}
-
-              {selectedProduct.input_mode === 'PACK_COUNT' && (
+              ) : (
                 <div className="form-group">
                   <label>Unités par carton :</label>
                   <div className="input-with-addon">
