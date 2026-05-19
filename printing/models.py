@@ -13,7 +13,14 @@ class LabelTemplate(models.Model):
         verbose_name = "Modèle d'étiquette"
         verbose_name_plural = "Modèles d'étiquettes"
 
+class Client(models.Model):
+    nom = models.CharField(max_length=100, unique=True)
+    numero_client = models.CharField(max_length=50, unique=True, verbose_name="Numéro de client")
+    # On pourra ajouter un champ JSON plus tard ici sans problème : data_sup = models.JSONField(blank=True, null=True)
 
+    def __str__(self):
+        return f"{self.numero_client} - {self.nom}"
+    
 class Unit(models.Model):
     INPUT_MODES = [
         ('STANDARD', "Standard (Quantité simple)"),

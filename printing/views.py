@@ -4,13 +4,18 @@ import datetime
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import viewsets, status
+from rest_framework.serializers import ModelSerializer
 from dotenv import load_dotenv
 
-from .models import Category, LabelTemplate, Product, ConfigurationImprimante
+from .models import Category, LabelTemplate, Product, ConfigurationImprimante, Client
 from .serializers import CategorySerializer, LabelTemplateSerializer, ProductSerializer
 
 # Chargement du fichier .env au démarrage du serveur
 load_dotenv()
+
+# =================================================================
+# 1. VIEWSETS POUR L'API REST (LECTURE DES DONNÉES)
+# =================================================================
 
 class CategoryViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Category.objects.all()
@@ -24,6 +29,20 @@ class ProductViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Product.objects.all()
     serializer_class = ProductSerializer
 
+class ClientSerializer(ModelSerializer):
+    class Meta:
+        model = Client
+        fields = ['id', 'nom', 'numero_client']
+
+class ClientViewSet(viewsets.ModelViewSet):
+    queryset = Client.objects.all().order_by('nom')
+    serializer_class = ClientSerializer
+
+
+# =================================================================
+# 2. PILOTAGE DES IMPRIMANTES WINDOWS
+# =================================================================
+
 # Essai d'import de win32print (Windows uniquement)
 try:
     import win32print
@@ -31,9 +50,15 @@ except ImportError:
     win32print = None
 
 
+# =================================================================
+# 3. API D'IMPRESSION DES ÉTIQUETTES
+# =================================================================
+
 class PrintLabelAPIView(APIView):
-    def post(self, request):
+    def post(self, request, *args, **kwargs):
         product_id = request.data.get('product_id')
+        client_name = request.data.get('client_name', '')
+        client_num = request.data.get('client_num', '')
         value = request.data.get('value', '')
         colis_count = int(request.data.get('colis_count', 1))
         labels_per_colis = int(request.data.get('labels_per_colis', 1))
@@ -79,6 +104,10 @@ class PrintLabelAPIView(APIView):
             texte_etiquette = texte_etiquette.replace("{LOT}", lot_unique)
             texte_etiquette = texte_etiquette.replace("{VALUE}", str(value))
             texte_etiquette = texte_etiquette.replace("{UNIT}", product.unit_symbol if hasattr(product, 'unit_symbol') else "U")
+            
+            # Injection des données clients (si absent ou vide -> laisse un espace blanc)
+            texte_etiquette = texte_etiquette.replace("{CLIENT_NAME}", str(client_name) if client_name else "")
+            texte_etiquette = texte_etiquette.replace("{CLIENT_NUM}", str(client_num) if client_num else "")
             
             if labels_per_colis > 1:
                 texte_etiquette = texte_etiquette.replace("^XZ", f"^PQ{labels_per_colis}^XZ")
