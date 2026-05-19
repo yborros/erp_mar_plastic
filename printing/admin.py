@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Unit, Category, Workstation, LabelTemplate, Product, PrintJob, ConfigurationImprimante
+from .models import Unit, Category, Workstation, LabelTemplate, Product, PrintJob, ConfigurationImprimante, Client # <-- Ajout de Client ici
 
 @admin.register(Unit)
 class UnitAdmin(admin.ModelAdmin):
@@ -29,3 +29,11 @@ class PrintJobAdmin(admin.ModelAdmin):
 @admin.register(ConfigurationImprimante)
 class ConfigurationImprimanteAdmin(admin.ModelAdmin):
     list_display = ('code_poste', 'nom_emplacement', 'mode_connexion', 'nom_systeme_windows', 'adresse_ip')
+
+# =================================================================
+# ENREGISTREMENT DU MODÈLE CLIENT
+# =================================================================
+@admin.register(Client)
+class ClientAdmin(admin.ModelAdmin):
+    list_display = ('numero_client', 'nom') # Affiche le numéro et le nom dans la liste globale
+    search_fields = ('nom', 'numero_client') # Permet de chercher rapidement un client par son nom ou son code
