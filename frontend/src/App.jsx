@@ -4,23 +4,31 @@ import './App.css'
 function App() {
   const [products, setProducts] = useState([])
   const [categories, setCategories] = useState([])
-  const [clients, setClients] = useState([]) // <-- Nouvel état pour stocker la liste des clients
+  const [clients, setClients] = useState([]) 
   const [filteredProducts, setFilteredProducts] = useState([])
   
-  // États pour les filtres
+  // --- SYSTÈME DE FAVORIS ---
+  // On charge les favoris existants du navigateur, ou une liste vide si c'est la première fois
+  const [favorites, setFavorites] = useState(() => {
+    const saved = localStorage.getItem('mar_plastic_favs');
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  // États pour les filtres (Écran Catalogue)
   const [searchTerm, setSearchTerm] = useState('')
   const [activeCategory, setActiveCategory] = useState('Tous')
   const [loading, setLoading] = useState(true)
 
-  // États pour la saisie de production
+  // États pour la saisie de production (Écran Studio)
   const [selectedProduct, setSelectedProduct] = useState(null)
-  const [selectedClient, setSelectedClient] = useState(null) // <-- Stocke l'objet client complet sélectionné
+  const [selectedClient, setSelectedClient] = useState(null) 
+  const [clientSearchTerm, setClientSearchTerm] = useState('') 
   const [weight, setWeight] = useState('15.50')
   const [packCount, setPackCount] = useState('500')
   
   // Compteurs industriels
-  const [colisCount, setColisCount] = useState(1)       // Nombre de lots uniques
-  const [labelsPerColis, setLabelsPerColis] = useState(1) // Nombre de faces (doublons)
+  const [colisCount, setColisCount] = useState(1)       
+  const [labelsPerColis, setLabelsPerColis] = useState(1) 
 
   // Chargement des données Django
   useEffect(() => {
@@ -29,30 +37,64 @@ function App() {
     Promise.all([
       fetch(`${API_BASE}/api/products/`).then(res => res.json()),
       fetch(`${API_BASE}/api/categories/`).then(res => res.json()),
-      fetch(`${API_BASE}/api/clients/`).then(res => res.json()) // <-- Chargement des clients depuis l'API
+      fetch(`${API_BASE}/api/clients/`).then(res => res.json()) 
     ])
     .then(([productsData, categoriesData, clientsData]) => {
       setProducts(productsData)
       setCategories(categoriesData)
-      setClients(clientsData) // <-- Sauvegarde dans l'état
+      setClients(clientsData) 
       setFilteredProducts(productsData)
       setLoading(false)
     })
     .catch(error => console.error("Erreur API :", error))
   }, [])
 
-  // Filtrage
+  // Sauvegarder les favoris dans le navigateur dès qu'ils changent
+  useEffect(() => {
+    localStorage.setItem('mar_plastic_favs', JSON.stringify(favorites));
+  }, [favorites]);
+
+  // Filtrage et Tri des produits (Favoris d'abord, puis Recherche)
   useEffect(() => {
     const results = products.filter(product => {
       const matchesSearch = product.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
                             product.sku.toLowerCase().includes(searchTerm.toLowerCase())
       const matchesCategory = activeCategory === 'Tous' || product.category_name === activeCategory
       return matchesSearch && matchesCategory
-    })
-    setFilteredProducts(results)
-  }, [searchTerm, activeCategory, products])
+    });
 
-  // Générateur de code ZPL injecté (pour l'aperçu Labelary à droite)
+    // LOGIQUE DE TRI : On place les favoris tout en haut de la liste
+    const sortedResults = [...results].sort((a, b) => {
+      const aIsFav = favorites.includes(a.id);
+      const bIsFav = favorites.includes(b.id);
+      if (aIsFav && !bIsFav) return -1; // a passe devant
+      if (!aIsFav && bIsFav) return 1;  // b passe devant
+      return 0; // On garde l'ordre si les deux sont favs ou aucun
+    });
+
+    setFilteredProducts(sortedResults)
+  }, [searchTerm, activeCategory, products, favorites])
+
+  // Gestion du clic sur l'étoile
+  const toggleFavorite = (e, productId) => {
+    e.stopPropagation(); // Empêche d'ouvrir l'écran d'impression quand on clique juste sur l'étoile
+    if (favorites.includes(productId)) {
+      setFavorites(favorites.filter(id => id !== productId)); // Enlever des favoris
+    } else {
+      setFavorites([...favorites, productId]); // Ajouter aux favoris
+    }
+  };
+
+  // Filtrage et Tri Alphabétique des clients
+  const getFilteredAndSortedClients = () => {
+    return clients
+      .filter(client => 
+        client.nom.toLowerCase().includes(clientSearchTerm.toLowerCase())
+      )
+      .sort((a, b) => a.nom.localeCompare(b.nom));
+  }
+
+  // Générateur de code ZPL injecté
   const getZPLTemplate = () => {
     if (!selectedProduct || !selectedProduct.zpl_template) return '';
     
@@ -64,18 +106,15 @@ function App() {
     if (selectedProduct.input_mode === 'WEIGHT') currentInputValue = weight;
     if (selectedProduct.input_mode === 'PACK_COUNT') currentInputValue = packCount;
 
-    // Remplacement des variables du produit
     zpl = zpl.replace(/{NAME}/g, selectedProduct.name);
     zpl = zpl.replace(/{SKU}/g, selectedProduct.sku);
     zpl = zpl.replace(/{LOT}/g, lotSimule);
     zpl = zpl.replace(/{VALUE}/g, currentInputValue);
     zpl = zpl.replace(/{UNIT}/g, selectedProduct.unit_symbol);
     
-    // Remplacement dynamique des variables du client sur l'aperçu visuel
     zpl = zpl.replace(/{CLIENT_NAME}/g, selectedClient ? selectedClient.nom : '');
     zpl = zpl.replace(/{CLIENT_NUM}/g, selectedClient ? selectedClient.numero_client : '');
     
-    // Injection quantité
     if (labelsPerColis > 1) {
       zpl = zpl.replace('^XZ', `^PQ${labelsPerColis}^XZ`);
     }
@@ -85,7 +124,7 @@ function App() {
 
   const previewImageUrl = selectedProduct ? `http://api.labelary.com/v1/printers/8dpmm/labels/3.94x3.15/0/${getZPLTemplate()}` : ''
 
-  // Envoi de la demande d'impression réelle ou simulée
+  // Envoi de la demande d'impression
   const handlePrintTest = (e) => {
     e.preventDefault()
     
@@ -95,7 +134,6 @@ function App() {
 
     const API_BASE = `http://${window.location.hostname}:8000`;
 
-    // Appel à l'API
     fetch(`${API_BASE}/api/print/`, {
       method: 'POST',
       headers: {
@@ -106,8 +144,8 @@ function App() {
         value: currentInputValue,
         colis_count: colisCount,
         labels_per_colis: labelsPerColis,
-        client_name: selectedClient ? selectedClient.nom : '',          // <-- Injecté vers Django
-        client_num: selectedClient ? selectedClient.numero_client : ''   // <-- Injecté vers Django
+        client_name: selectedClient ? selectedClient.nom : '',          
+        client_num: selectedClient ? selectedClient.numero_client : ''   
       })
     })
     .then(res => res.json())
@@ -115,7 +153,8 @@ function App() {
       if (data.status === 'success') {
         alert(`✅ Succès : ${data.message}`);
         setSelectedProduct(null);
-        setSelectedClient(null); // Remplacement à l'état initial
+        setSelectedClient(null); 
+        setClientSearchTerm('');
         setSearchTerm('');
         setColisCount(1);
         setLabelsPerColis(1);
@@ -129,11 +168,10 @@ function App() {
     });
   }
 
-  // Changement de client via la liste déroulante
   const handleClientChange = (e) => {
     const clientId = e.target.value;
     if (!clientId) {
-      setSelectedClient(null); // Option "aucun" -> espace blanc
+      setSelectedClient(null); 
     } else {
       const foundClient = clients.find(c => c.id === parseInt(clientId));
       setSelectedClient(foundClient);
@@ -143,6 +181,8 @@ function App() {
   if (loading) {
     return <h2 style={{ textAlign: 'center', marginTop: '50px' }}>Chargement du studio d'impression...</h2>
   }
+
+  const sortedAndFilteredClients = getFilteredAndSortedClients();
 
   return (
     <div className="kiosk-container">
@@ -178,13 +218,25 @@ function App() {
           </div>
           
           <div className="product-grid">
-            {filteredProducts.map(product => (
-              <button key={product.id} className="product-btn" onClick={() => setSelectedProduct(product)}>
-                <span className="sku">{product.sku}</span>
-                <span className="name">{product.name}</span>
-                <span className="category">{product.category_name}</span>
-              </button>
-            ))}
+            {filteredProducts.map(product => {
+              const isFav = favorites.includes(product.id);
+              return (
+                <button key={product.id} className={`product-btn ${isFav ? 'has-fav' : ''}`} onClick={() => setSelectedProduct(product)}>
+                  {/* Bouton Étoile de favori */}
+                  <span 
+                    className={`fav-star ${isFav ? 'is-active' : ''}`} 
+                    onClick={(e) => toggleFavorite(e, product.id)}
+                    title={isFav ? "Retirer des favoris" : "Ajouter aux favoris"}
+                  >
+                    {isFav ? '★' : '☆'}
+                  </span>
+                  
+                  <span className="sku">{product.sku}</span>
+                  <span className="name">{product.name}</span>
+                  <span className="category">{product.category_name}</span>
+                </button>
+              );
+            })}
           </div>
         </>
       ) : (
@@ -193,7 +245,7 @@ function App() {
           
           {/* Formulaire à gauche */}
           <div className="print-card-studio">
-            <button className="back-btn" onClick={() => { setSelectedProduct(null); setSelectedClient(null); }}>⬅ Changer de produit</button>
+            <button className="back-btn" onClick={() => { setSelectedProduct(null); setSelectedClient(null); setClientSearchTerm(''); }}>⬅ Changer de produit</button>
             
             <div className="product-summary">
               <span className="print-badge">{selectedProduct.category_name}</span>
@@ -203,22 +255,38 @@ function App() {
 
             <form onSubmit={handlePrintTest} className="print-form">
               
-              {/* SÉLECTEUR DE CLIENT */}
-              <div className="form-group">
-                <label style={{ fontWeight: 'bold', color: '#2c3e50' }}>Destinataire / Client :</label>
+              {/* ZONE CLIENT RECHERCHE + SÉLECTION */}
+              <div className="form-group" style={{ background: '#fcfcfc', padding: '12px', borderRadius: '6px', border: '1px solid #eaeaea' }}>
+                <label style={{ fontWeight: 'bold', color: '#2c3e50', display: 'block', marginBottom: '6px' }}>Destinataire / Client :</label>
+                
+                <input 
+                  type="text"
+                  placeholder="🔍 Taper le nom du client..."
+                  value={clientSearchTerm}
+                  onChange={(e) => setClientSearchTerm(e.target.value)}
+                  className="form-input"
+                  style={{ marginBottom: '8px', fontSize: '14px', height: '36px' }}
+                />
+
                 <select 
                   className="form-input" 
                   value={selectedClient ? selectedClient.id : ''} 
                   onChange={handleClientChange}
-                  style={{ backgroundColor: '#f8f9fa', cursor: 'pointer' }}
+                  style={{ backgroundColor: '#ffffff', cursor: 'pointer' }}
                 >
                   <option value="">— Aucun (Espace blanc) —</option>
-                  {clients.map(client => (
+                  {sortedAndFilteredClients.map(client => (
                     <option key={client.id} value={client.id}>
-                      {client.numero_client} - {client.nom}
+                      {client.nom}
                     </option>
                   ))}
                 </select>
+
+                {clientSearchTerm && (
+                  <span style={{ fontSize: '11px', color: '#7f8c8d', display: 'block', marginTop: '4px', fontStyle: 'italic' }}>
+                    {sortedAndFilteredClients.length} client(s) correspondant(s)
+                  </span>
+                )}
               </div>
 
               {selectedProduct.input_mode === 'WEIGHT' && (

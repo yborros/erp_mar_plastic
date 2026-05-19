@@ -76,7 +76,7 @@ body {
   border-color: #2980b9;
 }
 
-/* Grille */
+/* Grille et Cartes Produits */
 .product-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -93,11 +93,40 @@ body {
   align-items: center;
   cursor: pointer;
   box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+  position: relative; /* Ajustement requis pour ancrer l'étoile à l'intérieur */
+  transition: border-color 0.2s, border-left 0.1s;
 }
 
 .product-btn:hover {
   border-color: #2980b9;
 }
+
+/* --- STYLE UNIQUE DES FAVORIS --- */
+.fav-star {
+  position: absolute;
+  top: 10px;
+  right: 15px;
+  font-size: 24px;
+  color: #dcdde1; /* Étoile grise par défaut */
+  cursor: pointer;
+  transition: transform 0.1s ease, color 0.2s ease;
+  z-index: 10;
+}
+
+.fav-star:hover {
+  transform: scale(1.25);
+  color: #f1c40f;
+}
+
+.fav-star.is-active {
+  color: #f1c40f; /* Étoile dorée quand le sachet est favori */
+  text-shadow: 0 0 4px rgba(241, 196, 15, 0.2);
+}
+
+.product-btn.has-fav {
+  border-left: 6px solid #f1c40f; /* Liseré doré à gauche pour repérer le favori au premier coup d'œil */
+}
+/* -------------------------------- */
 
 .sku {
   font-size: 0.8em;
@@ -112,6 +141,7 @@ body {
   color: #2c3e50;
   margin-bottom: 12px;
   text-align: center;
+  padding: 0 10px; /* Évite que le nom ne touche l'étoile */
 }
 
 .category {
