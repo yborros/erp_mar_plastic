@@ -103,7 +103,7 @@ class PrintLabelAPIView(APIView):
             texte_etiquette = texte_etiquette.replace("{SKU}", product.sku)
             texte_etiquette = texte_etiquette.replace("{LOT}", lot_unique)
             texte_etiquette = texte_etiquette.replace("{VALUE}", str(value))
-            texte_etiquette = texte_etiquette.replace("{UNIT}", product.unit_symbol if hasattr(product, 'unit_symbol') else "U")
+            texte_etiquette = texte_etiquette.replace("{UNIT}", product.unit.abbreviation if product.unit else "U")
             
             # Injection des données clients (si absent ou vide -> laisse un espace blanc)
             texte_etiquette = texte_etiquette.replace("{CLIENT_NAME}", str(client_name) if client_name else "")
