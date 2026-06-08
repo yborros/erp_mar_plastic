@@ -626,7 +626,7 @@ except Unit.DoesNotExist:
     print("❌ Erreur : Impossible de trouver l'unité 'U' ou 'Kg' dans l'admin. Vérifie tes symboles !")
     exit()
 
-print("📦 Récupération validée. Début de l'injection des sachets...")
+print("📦 Récupération validée. Nettoyage et mise à jour des unités au Maroc...")
 compteur_produits = 0
 
 for ligne in donnees_sachets.strip().split('\n'):
@@ -639,22 +639,21 @@ for ligne in donnees_sachets.strip().split('\n'):
         name_clean = parts[1].strip().replace('"', '').replace('  ', ' ')
         mode_code = parts[3].strip().replace('"', '')
         
-        # Choix de l'unité configurée dans l'admin
+        # Sélection stricte de l'unité configurée dans l'admin
         if mode_code == "2":
             unite_choisie = unite_kg
         else:
             unite_choisie = unite_u
             
-        # Création ou mise à jour sécurisée (sans le champ input_mode rejeté)
+        # FORCE la mise à jour de l'unité en base de données
         product, created = Product.objects.update_or_create(
             sku=sku_clean,
             defaults={
                 'name': name_clean,
                 'category': categorie_existante,
-                'unit': unite_choisie
+                'unit': unite_choisie  # <--- On écrase l'ancien 'U' par le bon 'Kg'
             }
         )
-        if created:
-            compteur_produits += 1
+        compteur_produits += 1
 
-print(f"✅ Terminé ! {compteur_produits} sachets importés proprement.")
+print(f"✅ Base de données corrigée ! {compteur_produits} sachets ont maintenant la bonne unité.")
