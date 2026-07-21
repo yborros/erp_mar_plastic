@@ -112,7 +112,6 @@ function App() {
       zpl = templateBobine ? templateBobine.zpl_code : null;
     }
 
-    // Template par défaut avec cm et µm
     if (!zpl) {
       zpl = `^XA^CI28^PW800^LL600^FO40,30^A0N,28,28^FDMAR PLASTIC - FABRICATION DIRECTE^FS^FO40,65^A0N,20,20^FDICE: 001847540000028  NM: 11.4.050^FS^FO20,95^GB760,3,3^FS^FO40,115^A0N,22,22^FDCLIENT:^FS^FO150,110^A0N,35,35^FD{CLIENT_NAME}^FS^FO40,160^A0N,22,22^FDLAIZE:^FS^FO130,150^A0N,40,40^FD{LAIZE} cm^FS^FO450,160^A0N,22,22^FDEPAISS:^FS^FO550,150^A0N,40,40^FD{MICRON} \x85m^FS^FO40,215^A0N,22,22^FDARTICLE:^FS^FO150,210^A0N,30,30^FB600,2,,L^FD{NAME}^FS^FO40,270^A0N,25,25^FDQUANTITE:^FS^FO200,255^A0N,75,75^FD{VALUE} {UNIT}^FS^FO120,380^BY3^BCN,120,Y,N,N^FD{LOT}^FS^XZ`;
     }
@@ -148,6 +147,9 @@ function App() {
     const estPoids = selectedProduct ? (selectedProduct.unit_symbol?.toLowerCase() === 'kg') : (uniteVolante.toLowerCase() === 'kg');
     const currentInputValue = estPoids ? weight : packCount;
 
+    // En saisie volante, colis_count est toujours forcé à 1 (1 bobine physique unique)
+    const finalColisCount = selectedProduct ? colisCount : 1;
+
     const payload = {
       is_free_input: !selectedProduct,
       product_id: selectedProduct ? selectedProduct.id : null,
@@ -156,7 +158,7 @@ function App() {
       micron: micron,
       value: currentInputValue,
       unit_str: selectedProduct ? selectedProduct.unit_symbol : uniteVolante,
-      colis_count: colisCount,
+      colis_count: finalColisCount,
       labels_per_colis: labelsPerColis,
       client_name: selectedClient ? selectedClient.nom : '',          
       client_num: selectedClient ? selectedClient.numero_client : ''   
@@ -201,7 +203,7 @@ function App() {
         <p>Studio d'Impression Industrialisé</p>
       </header>
 
-      {/* ÉCRAN 1 : CATALOGUE PRODUITS & BARRE D'ACTION */}
+      {/* ÉCRAN 1 : CATALOGUE PRODUITS */}
       {!selectedProduct && !isFreeInputMode ? (
         <>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
@@ -259,7 +261,7 @@ function App() {
           </div>
         </>
       ) : (
-        /* ÉCRAN 2 : STUDIO CÔTE À CÔTE POUR IMPRESSION */
+        /* ÉCRAN 2 : STUDIO CÔTE À CÔTE */
         <div className="studio-layout">
           
           <div className="print-card-studio">
@@ -280,7 +282,7 @@ function App() {
 
             <form onSubmit={handlePrintTest} className="print-form">
               
-              {/* SÉLECTION DU CLIENT */}
+              {/* SÉLECTION CLIENT */}
               <div className="form-group" style={{ background: '#fcfcfc', padding: '12px', borderRadius: '8px', border: '1px solid #eaeaea' }}>
                 <label style={{ fontWeight: 'bold', color: '#2c3e50', display: 'block', marginBottom: '6px' }}>Destinataire / Client :</label>
                 
@@ -328,7 +330,7 @@ function App() {
                 )}
               </div>
 
-              {/* SAISIE DE DÉSIGNATION SI SANS PRODUIT CATALOGUE */}
+              {/* SAISIE DE DÉSIGNATION (Saisie Volante) */}
               {!selectedProduct && (
                 <div className="form-group">
                   <label>Désignation Article / Matière :</label>
@@ -370,10 +372,10 @@ function App() {
                 </div>
               </div>
 
-              {/* QUANTITÉ OU POIDS */}
+              {/* QUANTITÉ / POIDS DE LA BOBINE */}
               {estProduitAuPoids ? (
                 <div className="form-group">
-                  <label>Poids du produit :</label>
+                  <label>Poids de la bobine :</label>
                   <div className="input-with-addon">
                     <input type="number" step="0.01" value={weight} onChange={(e) => setWeight(e.target.value)} className="form-input" required />
                     
@@ -401,26 +403,39 @@ function App() {
                 </div>
               )}
 
-              {/* COMPTEURS COLIS & FACES */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
-                <div className="form-group">
-                  <label>Nbr de colis / bobines :</label>
-                  <div className="quantity-selector">
-                    <button type="button" onClick={() => setColisCount(Math.max(1, colisCount - 1))} className="qty-btn">-</button>
-                    <input type="number" value={colisCount} className="qty-input" readOnly />
-                    <button type="button" onClick={() => setColisCount(colisCount + 1)} className="qty-btn">+</button>
+              {/* GESTION DU NOMBRE D'ÉTIQUETTES / COLIS */}
+              {selectedProduct ? (
+                /* Mode Catalogue : Choix des Colis ET des Doublons */
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+                  <div className="form-group">
+                    <label>Nbr de cartons / colis :</label>
+                    <div className="quantity-selector">
+                      <button type="button" onClick={() => setColisCount(Math.max(1, colisCount - 1))} className="qty-btn">-</button>
+                      <input type="number" value={colisCount} className="qty-input" readOnly />
+                      <button type="button" onClick={() => setColisCount(colisCount + 1)} className="qty-btn">+</button>
+                    </div>
+                  </div>
+
+                  <div className="form-group">
+                    <label>Étiquettes par colis :</label>
+                    <div className="quantity-selector">
+                      <button type="button" onClick={() => setLabelsPerColis(Math.max(1, labelsPerColis - 1))} className="qty-btn">-</button>
+                      <input type="number" value={labelsPerColis} className="qty-input" readOnly />
+                      <button type="button" onClick={() => setLabelsPerColis(labelsPerColis + 1)} className="qty-btn">+</button>
+                    </div>
                   </div>
                 </div>
-
+              ) : (
+                /* Mode Saisie Volante (Bobine unique) : Choix uniquement du nombre d'étiquettes à sortir */
                 <div className="form-group">
-                  <label>Étiquettes par colis :</label>
-                  <div className="quantity-selector">
+                  <label>Nombre d'étiquettes pour cette bobine (Faces / Doublons) :</label>
+                  <div className="quantity-selector" style={{ maxWidth: '200px' }}>
                     <button type="button" onClick={() => setLabelsPerColis(Math.max(1, labelsPerColis - 1))} className="qty-btn">-</button>
                     <input type="number" value={labelsPerColis} className="qty-input" readOnly />
                     <button type="button" onClick={() => setLabelsPerColis(labelsPerColis + 1)} className="qty-btn">+</button>
                   </div>
                 </div>
-              </div>
+              )}
 
               <button type="submit" className="submit-print-btn" style={{ background: selectedProduct ? '#2980b9' : '#27ae60' }}>
                 🖨️ IMPRIMER L'ÉTIQUETTE
@@ -441,7 +456,7 @@ function App() {
             <p className="preview-footnote">
               {selectedProduct 
                 ? `Produit Catalogue : [${selectedProduct.sku}] ${selectedProduct.name}`
-                : "Mode Saisie Volante : Fabrication Directe"
+                : "Mode Saisie Volante : Fabrication Directe (Bobine unique)"
               }
             </p>
           </div>
