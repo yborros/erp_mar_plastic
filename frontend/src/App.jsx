@@ -26,8 +26,10 @@ function App() {
   const [selectedClient, setSelectedClient] = useState(null) 
   const [clientSearchTerm, setClientSearchTerm] = useState('') 
 
+  // Choix rapide de matière pour Saisie Volante (PP / PE)
+  const [selectedMatiere, setSelectedMatiere] = useState('PE')
+
   // Champs de saisie (Volante + Réglages Bobine en CM et µm)
-  const [designationVolante, setDesignationVolante] = useState('GAINE PEBD NEUTRE')
   const [laize, setLaize] = useState('50') // Valeur en cm
   const [micron, setMicron] = useState('50') // Valeur en µm
   const [weight, setWeight] = useState('180')
@@ -37,6 +39,9 @@ function App() {
   // Compteurs industriels
   const [colisCount, setColisCount] = useState(1)       
   const [labelsPerColis, setLabelsPerColis] = useState(1) 
+
+  // Libellé calculé pour la saisie volante (ex: GAINE PE)
+  const designationVolante = `GAINE ${selectedMatiere}`;
 
   // Chargement des données Django depuis l'API
   useEffect(() => {
@@ -120,7 +125,7 @@ function App() {
     const currentInputValue = estPoids ? weight : packCount;
 
     zpl = zpl.replace(/{NAME}/g, selectedProduct ? selectedProduct.name : designationVolante);
-    zpl = zpl.replace(/{SKU}/g, selectedProduct ? selectedProduct.sku : `BOB-${laize}CM-${micron}MIC`);
+    zpl = zpl.replace(/{SKU}/g, selectedProduct ? selectedProduct.sku : `BOB-${selectedMatiere}-${laize}CM-${micron}MIC`);
     zpl = zpl.replace(/{LOT}/g, lotSimule);
     zpl = zpl.replace(/{VALUE}/g, currentInputValue);
     zpl = zpl.replace(/{UNIT}/g, selectedProduct ? selectedProduct.unit_symbol : uniteVolante);
@@ -147,13 +152,13 @@ function App() {
     const estPoids = selectedProduct ? (selectedProduct.unit_symbol?.toLowerCase() === 'kg') : (uniteVolante.toLowerCase() === 'kg');
     const currentInputValue = estPoids ? weight : packCount;
 
-    // En saisie volante, colis_count est toujours forcé à 1 (1 bobine physique unique)
     const finalColisCount = selectedProduct ? colisCount : 1;
 
     const payload = {
       is_free_input: !selectedProduct,
       product_id: selectedProduct ? selectedProduct.id : null,
       custom_name: designationVolante,
+      matiere: selectedMatiere,
       laize: laize,
       micron: micron,
       value: currentInputValue,
@@ -330,18 +335,47 @@ function App() {
                 )}
               </div>
 
-              {/* SAISIE DE DÉSIGNATION (Saisie Volante) */}
+              {/* BOUTONS RADIO MATIÈRE (PP / PE) EN SAISIE VOLANTE */}
               {!selectedProduct && (
                 <div className="form-group">
-                  <label>Désignation Article / Matière :</label>
-                  <input 
-                    type="text" 
-                    value={designationVolante} 
-                    onChange={(e) => setDesignationVolante(e.target.value)} 
-                    className="form-input" 
-                    style={{ width: '100%', borderRadius: '6px' }}
-                    required 
-                  />
+                  <label style={{ fontWeight: 'bold', display: 'block', marginBottom: '8px' }}>Matière :</label>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                    
+                    <button
+                      type="button"
+                      onClick={() => setSelectedMatiere('PE')}
+                      style={{
+                        padding: '12px',
+                        borderRadius: '6px',
+                        border: selectedMatiere === 'PE' ? '2px solid #27ae60' : '1px solid #ccc',
+                        background: selectedMatiere === 'PE' ? '#e8f8f5' : '#f8f9fa',
+                        color: selectedMatiere === 'PE' ? '#27ae60' : '#2c3e50',
+                        fontWeight: 'bold',
+                        fontSize: '16px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      PE (Polyéthylène)
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setSelectedMatiere('PP')}
+                      style={{
+                        padding: '12px',
+                        borderRadius: '6px',
+                        border: selectedMatiere === 'PP' ? '2px solid #2980b9' : '1px solid #ccc',
+                        background: selectedMatiere === 'PP' ? '#ebf5fb' : '#f8f9fa',
+                        color: selectedMatiere === 'PP' ? '#2980b9' : '#2c3e50',
+                        fontWeight: 'bold',
+                        fontSize: '16px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      PP (Polypropylène)
+                    </button>
+
+                  </div>
                 </div>
               )}
 
@@ -405,7 +439,6 @@ function App() {
 
               {/* GESTION DU NOMBRE D'ÉTIQUETTES / COLIS */}
               {selectedProduct ? (
-                /* Mode Catalogue : Choix des Colis ET des Doublons */
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
                   <div className="form-group">
                     <label>Nbr de cartons / colis :</label>
@@ -426,7 +459,6 @@ function App() {
                   </div>
                 </div>
               ) : (
-                /* Mode Saisie Volante (Bobine unique) : Choix uniquement du nombre d'étiquettes à sortir */
                 <div className="form-group">
                   <label>Nombre d'étiquettes pour cette bobine (Faces / Doublons) :</label>
                   <div className="quantity-selector" style={{ maxWidth: '200px' }}>
@@ -456,7 +488,7 @@ function App() {
             <p className="preview-footnote">
               {selectedProduct 
                 ? `Produit Catalogue : [${selectedProduct.sku}] ${selectedProduct.name}`
-                : "Mode Saisie Volante : Fabrication Directe (Bobine unique)"
+                : `Mode Saisie Volante : GAINE ${selectedMatiere} (Bobine unique)`
               }
             </p>
           </div>
