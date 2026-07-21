@@ -13,18 +13,24 @@ function App() {
     return saved ? JSON.parse(saved) : [];
   });
 
-  // États pour les filtres (Écran Catalogue)
+  // États pour le catalogue
   const [searchTerm, setSearchTerm] = useState('')
   const [activeCategory, setActiveCategory] = useState('Tous')
   const [loading, setLoading] = useState(true)
 
-  // États pour la saisie de production (Écran Studio)
+  // Sélection Catalogue & Client
   const [selectedProduct, setSelectedProduct] = useState(null)
   const [selectedClient, setSelectedClient] = useState(null) 
   const [clientSearchTerm, setClientSearchTerm] = useState('') 
-  const [weight, setWeight] = useState('15.50')
+
+  // Champs de saisie flexible (Bobine / Saisie Volante)
+  const [designation, setDesignation] = useState('GAINE PEBD NEUTRE')
+  const [laize, setLaize] = useState('500')
+  const [micron, setMicron] = useState('50')
+  const [weight, setWeight] = useState('180')
   const [packCount, setPackCount] = useState('500')
-  
+  const [uniteVolante, setUniteVolante] = useState('Kg')
+
   // Compteurs industriels
   const [colisCount, setColisCount] = useState(1)       
   const [labelsPerColis, setLabelsPerColis] = useState(1) 
@@ -48,12 +54,10 @@ function App() {
     .catch(error => console.error("Erreur API :", error))
   }, [])
 
-  // Sauvegarder les favoris dans le navigateur dès qu'ils changent
   useEffect(() => {
     localStorage.setItem('mar_plastic_favs', JSON.stringify(favorites));
   }, [favorites]);
 
-  // Filtrage et Tri des produits (Favoris d'abord, puis Recherche)
   useEffect(() => {
     const results = products.filter(product => {
       const matchesSearch = product.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -73,7 +77,6 @@ function App() {
     setFilteredProducts(sortedResults)
   }, [searchTerm, activeCategory, products, favorites])
 
-  // Gestion du clic sur l'étoile
   const toggleFavorite = (e, productId) => {
     e.stopPropagation();
     if (favorites.includes(productId)) {
@@ -83,7 +86,6 @@ function App() {
     }
   };
 
-  // Filtrage et Tri Alphabétique des clients
   const getFilteredAndSortedClients = () => {
     if (!clientSearchTerm) return [];
     return clients
@@ -93,67 +95,82 @@ function App() {
       .sort((a, b) => a.nom.localeCompare(b.nom));
   }
 
-  // Générateur de code ZPL injecté
+  // Génération du template ZPL dynamique pour l'aperçu
   const getZPLTemplate = () => {
-    if (!selectedProduct || !selectedProduct.zpl_template) return '';
-    
-    let zpl = selectedProduct.zpl_template;
     const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
     const lotSimule = `MP-${today}-REEL`;
-    
-    // Détection par symbole pour le rendu ZPL
-    const estPoids = selectedProduct.unit_symbol?.toLowerCase() === 'kg';
-    const currentInputValue = estPoids ? weight : packCount;
 
-    zpl = zpl.replace(/{NAME}/g, selectedProduct.name);
-    zpl = zpl.replace(/{SKU}/g, selectedProduct.sku);
-    zpl = zpl.replace(/{LOT}/g, lotSimule);
-    zpl = zpl.replace(/{VALUE}/g, currentInputValue);
-    zpl = zpl.replace(/{UNIT}/g, selectedProduct.unit_symbol || '');
-    
-    zpl = zpl.replace(/{CLIENT_NAME}/g, selectedClient ? selectedClient.nom : '');
-    zpl = zpl.replace(/{CLIENT_NUM}/g, selectedClient ? selectedClient.numero_client : '');
-    
-    if (labelsPerColis > 1) {
-      zpl = zpl.replace('^XZ', `^PQ${labelsPerColis}^XZ`);
+    if (selectedProduct && selectedProduct.zpl_template) {
+      let zpl = selectedProduct.zpl_template;
+      const estPoids = selectedProduct.unit_symbol?.toLowerCase() === 'kg';
+      const currentInputValue = estPoids ? weight : packCount;
+
+      zpl = zpl.replace(/{NAME}/g, selectedProduct.name);
+      zpl = zpl.replace(/{SKU}/g, selectedProduct.sku);
+      zpl = zpl.replace(/{LOT}/g, lotSimule);
+      zpl = zpl.replace(/{VALUE}/g, currentInputValue);
+      zpl = zpl.replace(/{UNIT}/g, selectedProduct.unit_symbol || '');
+      zpl = zpl.replace(/{LAIZE}/g, laize);
+      zpl = zpl.replace(/{MICRON}/g, micron);
+      zpl = zpl.replace(/{CLIENT_NAME}/g, selectedClient ? selectedClient.nom : '');
+      zpl = zpl.replace(/{CLIENT_NUM}/g, selectedClient ? selectedClient.numero_client : '');
+
+      if (labelsPerColis > 1) {
+        zpl = zpl.replace('^XZ', `^PQ${labelsPerColis}^XZ`);
+      }
+      return encodeURIComponent(zpl);
     }
-    
-    return encodeURIComponent(zpl);
+
+    // Template par défaut pour la Saisie Volante (Sortie de machine)
+    let zplVolant = `^XA^CI28^PW800^LL600^FO40,30^A0N,28,28^FDMAR PLASTIC - FABRICATION DIRECTE^FS^FO40,65^A0N,20,20^FDICE: 001847540000028  NM: 11.4.050^FS^FO20,95^GB760,3,3^FS^FO40,115^A0N,22,22^FDCLIENT:^FS^FO150,110^A0N,35,35^FD{CLIENT_NAME}^FS^FO40,160^A0N,22,22^FDLAIZE:^FS^FO130,150^A0N,40,40^FD{LAIZE} mm^FS^FO450,160^A0N,22,22^FDEPAISS:^FS^FO550,150^A0N,40,40^FD{MICRON} um^FS^FO40,215^A0N,22,22^FDARTICLE:^FS^FO150,210^A0N,30,30^FB600,2,,L^FD{NAME}^FS^FO40,270^A0N,25,25^FDQUANTITE:^FS^FO200,255^A0N,75,75^FD{VALUE} {UNIT}^FS^FO120,380^BY3^BCN,120,Y,N,N^FD{LOT}^FS^XZ`;
+
+    zplVolant = zplVolant.replace(/{NAME}/g, designation);
+    zplVolant = zplVolant.replace(/{LAIZE}/g, laize);
+    zplVolant = zplVolant.replace(/{MICRON}/g, micron);
+    zplVolant = zplVolant.replace(/{VALUE}/g, weight);
+    zplVolant = zplVolant.replace(/{UNIT}/g, uniteVolante);
+    zplVolant = zplVolant.replace(/{LOT}/g, lotSimule);
+    zplVolant = zplVolant.replace(/{CLIENT_NAME}/g, selectedClient ? selectedClient.nom : '');
+
+    if (labelsPerColis > 1) {
+      zplVolant = zplVolant.replace('^XZ', `^PQ${labelsPerColis}^XZ`);
+    }
+
+    return encodeURIComponent(zplVolant);
   }
 
-  const previewImageUrl = selectedProduct ? `http://api.labelary.com/v1/printers/8dpmm/labels/3.94x3.15/0/${getZPLTemplate()}` : ''
+  const previewImageUrl = `http://api.labelary.com/v1/printers/8dpmm/labels/3.94x3.15/0/${getZPLTemplate()}`;
 
-  // Envoi de la demande d'impression
   const handlePrintTest = (e) => {
-    e.preventDefault()
-    
-    const estPoids = selectedProduct.unit_symbol?.toLowerCase() === 'kg';
+    e.preventDefault();
+    const API_BASE = `http://${window.location.hostname}:8000`;
+
+    const estPoids = selectedProduct ? (selectedProduct.unit_symbol?.toLowerCase() === 'kg') : (uniteVolante.toLowerCase() === 'kg');
     const currentInputValue = estPoids ? weight : packCount;
 
-    const API_BASE = `http://${window.location.hostname}:8000`;
+    const payload = {
+      is_free_input: !selectedProduct,
+      product_id: selectedProduct ? selectedProduct.id : null,
+      custom_name: designation,
+      laize: laize,
+      micron: micron,
+      value: currentInputValue,
+      unit_str: selectedProduct ? selectedProduct.unit_symbol : uniteVolante,
+      colis_count: colisCount,
+      labels_per_colis: labelsPerColis,
+      client_name: selectedClient ? selectedClient.nom : '',          
+      client_num: selectedClient ? selectedClient.numero_client : ''   
+    };
 
     fetch(`${API_BASE}/api/print/`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        product_id: selectedProduct.id,
-        value: currentInputValue,
-        colis_count: colisCount,
-        labels_per_colis: labelsPerColis,
-        client_name: selectedClient ? selectedClient.nom : '',          
-        client_num: selectedClient ? selectedClient.numero_client : ''   
-      })
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
     })
     .then(res => res.json())
     .then(data => {
       if (data.status === 'success') {
         alert(`✅ Succès : ${data.message}`);
-        setSelectedProduct(null);
-        setSelectedClient(null); 
-        setClientSearchTerm('');
-        setSearchTerm('');
         setColisCount(1);
         setLabelsPerColis(1);
       } else {
@@ -171,152 +188,184 @@ function App() {
   }
 
   const sortedAndFilteredClients = getFilteredAndSortedClients();
-  
-  // Détection ultra-fiable basée sur le symbole de l'unité reçu de Django
-  const estProduitAuPoids = selectedProduct?.unit_symbol?.toLowerCase() === 'kg';
 
   return (
     <div className="kiosk-container">
       <header className="kiosk-header">
         <h1>MAR PLASTIC</h1>
-        <p>Studio d'Impression & Labo Configuration</p>
+        <p>Studio d'Impression & Traçabilité Usine</p>
       </header>
 
-      {/* ÉCRAN 1 : CATALOGUE */}
-      {!selectedProduct ? (
-        <>
-          <div className="category-tabs">
-            <button className={`tab-btn ${activeCategory === 'Tous' ? 'active' : ''}`} onClick={() => setActiveCategory('Tous')}>
-              Tous ({products.length})
-            </button>
-            {categories.map(cat => (
-              <button key={cat.id} className={`tab-btn ${activeCategory === cat.name ? 'active' : ''}`} onClick={() => setActiveCategory(cat.name)}>
-                {cat.name}
-              </button>
-            ))}
-          </div>
-
-          <h2>Recherche rapide :</h2>
-          <div className="search-container">
-            <input 
-              type="text" 
-              placeholder={`🔍 Rechercher dans ${activeCategory}...`} 
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="search-input"
-              autoFocus
-            />
-          </div>
+      <div className="studio-layout">
+        
+        {/* FORMULAIRE DE SAISIE UNIVERSEL */}
+        <div className="print-card-studio">
           
-          <div className="product-grid">
-            {filteredProducts.map(product => {
-              const isFav = favorites.includes(product.id);
-              return (
-                <button key={product.id} className={`product-btn ${isFav ? 'has-fav' : ''}`} onClick={() => setSelectedProduct(product)}>
-                  <span 
-                    className={`fav-star ${isFav ? 'is-active' : ''}`} 
-                    onClick={(e) => toggleFavorite(e, product.id)}
-                    title={isFav ? "Retirer des favoris" : "Ajouter aux favoris"}
-                  >
-                    {isFav ? '★' : '☆'}
-                  </span>
-                  
-                  <span className="sku">{product.sku}</span>
-                  <span className="name">{product.name}</span>
-                  <span className="category">{product.category_name}</span>
-                </button>
-              );
-            })}
-          </div>
-        </>
-      ) : (
-        /* ÉCRAN 2 : STUDIO CÔTE À CÔTE */
-        <div className="studio-layout">
-          
-          {/* Formulaire à gauche */}
-          <div className="print-card-studio">
-            <button className="back-btn" onClick={() => { setSelectedProduct(null); setSelectedClient(null); setClientSearchTerm(''); }}>⬅ Changer de produit</button>
-            
-            <div className="product-summary">
-              <span className="print-badge">{selectedProduct.category_name}</span>
-              <h3>{selectedProduct.name}</h3>
-              <p><strong>Réf :</strong> {selectedProduct.sku}</p>
-            </div>
+          {/* SECTION D'ASSOCIATION CATALOGUE */}
+          <div style={{ background: '#f5f6fa', padding: '15px', borderRadius: '8px', marginBottom: '20px', border: '1px solid #dcdde1' }}>
+            <label style={{ fontWeight: 'bold', color: '#2c3e50', display: 'block', marginBottom: '8px' }}>
+              📦 Article du Catalogue (Optionnel) :
+            </label>
 
-            <form onSubmit={handlePrintTest} className="print-form">
-              
-              {/* ZONE CLIENT */}
-              <div className="form-group" style={{ background: '#fcfcfc', padding: '15px', borderRadius: '8px', border: '1px solid #eaeaea' }}>
-                <label style={{ fontWeight: 'bold', color: '#2c3e50', display: 'block', marginBottom: '8px' }}>Destinataire / Client :</label>
+            {!selectedProduct ? (
+              <>
+                <input 
+                  type="text" 
+                  placeholder="🔍 Rechercher un SKU ou nom d'article pour lier le tirage..." 
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="form-input"
+                  style={{ width: '100%', marginBottom: '8px', borderRadius: '6px', fontSize: '14px', height: '38px' }}
+                />
                 
-                {!selectedClient ? (
-                  <>
-                    <input 
-                      type="text"
-                      placeholder="🔍 Rechercher un client (ex: BUROPA)..."
-                      value={clientSearchTerm}
-                      onChange={(e) => setClientSearchTerm(e.target.value)}
-                      className="form-input"
-                      style={{ borderRadius: '6px', fontSize: '15px', height: '42px', width: '100%' }}
-                    />
-                    
-                    {clientSearchTerm && (
-                      <div style={{ maxHeight: '160px', overflowY: 'auto', marginTop: '8px', border: '1px solid #ddd', borderRadius: '6px', background: '#fff' }}>
-                        {sortedAndFilteredClients.length > 0 ? (
-                          sortedAndFilteredClients.map(client => (
-                            <button
-                              key={client.id}
-                              type="button"
-                              onClick={() => { setSelectedClient(client); setClientSearchTerm(''); }}
-                              style={{ width: '100%', padding: '10px 15px', textAlign: 'left', background: 'none', border: 'none', borderBottom: '1px solid #f5f5f5', cursor: 'pointer', color: '#333', fontSize: '14px' }}
-                              onMouseEnter={(e) => e.target.style.background = '#f5f6fa'}
-                              onMouseLeave={(e) => e.target.style.background = 'none'}
-                            >
-                              {client.nom}
-                            </button>
-                          ))
-                        ) : (
-                          <div style={{ padding: '10px', color: '#7f8c8d', fontSize: '13px', fontStyle: 'italic' }}>Aucun client trouvé</div>
-                        )}
+                {searchTerm && (
+                  <div style={{ maxHeight: '160px', overflowY: 'auto', background: '#fff', border: '1px solid #ccc', borderRadius: '6px' }}>
+                    {filteredProducts.map(p => (
+                      <div 
+                        key={p.id} 
+                        onClick={() => { setSelectedProduct(p); setDesignation(p.name); setSearchTerm(''); }}
+                        style={{ padding: '8px 12px', borderBottom: '1px solid #eee', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}
+                      >
+                        <span style={{ fontWeight: 'bold', color: '#2980b9' }}>{p.sku}</span>
+                        <span>{p.name}</span>
                       </div>
-                    )}
-                  </>
-                ) : (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#e1f5fe', padding: '10px 15px', borderRadius: '6px', border: '1px solid #b3e5fc' }}>
-                    <span style={{ fontWeight: 'bold', color: '#0288d1', fontSize: '15px' }}>{selectedClient.nom}</span>
-                    <button 
-                      type="button" 
-                      onClick={() => setSelectedClient(null)} 
-                      style={{ background: '#e53935', color: '#fff', border: 'none', padding: '4px 10px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}
-                    >
-                      Changer
-                    </button>
+                    ))}
                   </div>
                 )}
-              </div>
-
-              {/* DÉTECTION ROBUSTE DE LA CASE A AFFICHER (Basée sur le symbole Kg ou U de l'admin) */}
-              {estProduitAuPoids ? (
-                <div className="form-group">
-                  <label>Poids du produit :</label>
-                  <div className="input-with-addon">
-                    <input type="number" step="0.01" value={weight} onChange={(e) => setWeight(e.target.value)} className="form-input" required />
-                    <span className="input-addon">{selectedProduct.unit_symbol}</span>
-                  </div>
+              </>
+            ) : (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#e3f2fd', padding: '10px', borderRadius: '6px', border: '1px solid #90caf9' }}>
+                <div>
+                  <span style={{ fontWeight: 'bold', color: '#1565c0', marginRight: '8px' }}>[{selectedProduct.sku}]</span>
+                  <span style={{ fontSize: '14px' }}>{selectedProduct.name}</span>
                 </div>
+                <button type="button" onClick={() => setSelectedProduct(null)} style={{ background: '#e53935', color: '#fff', border: 'none', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}>Délier</button>
+              </div>
+            )}
+          </div>
+
+          <form onSubmit={handlePrintTest} className="print-form">
+            
+            {/* SÉLECTION CLIENT */}
+            <div className="form-group" style={{ background: '#fcfcfc', padding: '12px', borderRadius: '8px', border: '1px solid #eaeaea' }}>
+              <label style={{ fontWeight: 'bold', color: '#2c3e50', display: 'block', marginBottom: '6px' }}>Destinataire / Client :</label>
+              
+              {!selectedClient ? (
+                <>
+                  <input 
+                    type="text"
+                    placeholder="🔍 Rechercher un client..."
+                    value={clientSearchTerm}
+                    onChange={(e) => setClientSearchTerm(e.target.value)}
+                    className="form-input"
+                    style={{ borderRadius: '6px', fontSize: '14px', height: '38px', width: '100%' }}
+                  />
+                  
+                  {clientSearchTerm && (
+                    <div style={{ maxHeight: '140px', overflowY: 'auto', marginTop: '6px', border: '1px solid #ddd', borderRadius: '6px', background: '#fff' }}>
+                      {sortedAndFilteredClients.length > 0 ? (
+                        sortedAndFilteredClients.map(client => (
+                          <button
+                            key={client.id}
+                            type="button"
+                            onClick={() => { setSelectedClient(client); setClientSearchTerm(''); }}
+                            style={{ width: '100%', padding: '8px 12px', textAlign: 'left', background: 'none', border: 'none', borderBottom: '1px solid #f5f5f5', cursor: 'pointer', fontSize: '13px' }}
+                          >
+                            {client.nom}
+                          </button>
+                        ))
+                      ) : (
+                        <div style={{ padding: '8px', color: '#7f8c8d', fontSize: '12px', fontStyle: 'italic' }}>Aucun client trouvé</div>
+                      )}
+                    </div>
+                  )}
+                </>
               ) : (
-                <div className="form-group">
-                  <label>Unités par carton :</label>
-                  <div className="input-with-addon">
-                    <input type="number" value={packCount} onChange={(e) => setPackCount(e.target.value)} className="form-input" required />
-                    <span className="input-addon">{selectedProduct.unit_symbol || 'U'}</span>
-                  </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#e1f5fe', padding: '8px 12px', borderRadius: '6px', border: '1px solid #b3e5fc' }}>
+                  <span style={{ fontWeight: 'bold', color: '#0288d1', fontSize: '14px' }}>{selectedClient.nom}</span>
+                  <button 
+                    type="button" 
+                    onClick={() => setSelectedClient(null)} 
+                    style={{ background: '#e53935', color: '#fff', border: 'none', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}
+                  >
+                    Changer
+                  </button>
                 </div>
               )}
+            </div>
 
-              {/* COMPTEUR 1 : LES COLIS DISTINCTS */}
+            {/* DÉSIGNATION (Editable si pas de produit lié) */}
+            {!selectedProduct && (
               <div className="form-group">
-                <label>Nombre de colis à étiqueter (Lots uniques) :</label>
+                <label>Désignation Article / Matière :</label>
+                <input 
+                  type="text" 
+                  value={designation} 
+                  onChange={(e) => setDesignation(e.target.value)} 
+                  className="form-input" 
+                  style={{ width: '100%', borderRadius: '6px' }}
+                  required 
+                />
+              </div>
+            )}
+
+            {/* CHAMPS SPÉCIFIQUES EXTRUSION (LAIZE & MICRON) */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+              <div className="form-group">
+                <label>Laize (mm) :</label>
+                <input 
+                  type="number" 
+                  value={laize} 
+                  onChange={(e) => setLaize(e.target.value)} 
+                  className="form-input" 
+                  style={{ width: '100%', borderRadius: '6px' }}
+                />
+              </div>
+
+              <div className="form-group">
+                <label>Épaisseur ($\mu$m) :</label>
+                <input 
+                  type="number" 
+                  value={micron} 
+                  onChange={(e) => setMicron(e.target.value)} 
+                  className="form-input" 
+                  style={{ width: '100%', borderRadius: '6px' }}
+                />
+              </div>
+            </div>
+
+            {/* SAISIE QUANTITÉ / POIDS */}
+            <div className="form-group">
+              <label>Poids / Quantité de la Bobine :</label>
+              <div className="input-with-addon">
+                <input 
+                  type="number" 
+                  step="0.01" 
+                  value={weight} 
+                  onChange={(e) => setWeight(e.target.value)} 
+                  className="form-input" 
+                  required 
+                />
+                
+                {!selectedProduct ? (
+                  <select 
+                    value={uniteVolante} 
+                    onChange={(e) => setUniteVolante(e.target.value)}
+                    style={{ background: '#dcdde1', border: '2px solid #ccc', borderLeft: 'none', padding: '0 10px', fontWeight: 'bold' }}
+                  >
+                    <option value="Kg">Kg</option>
+                    <option value="U">U</option>
+                  </select>
+                ) : (
+                  <span className="input-addon">{selectedProduct.unit_symbol || 'Kg'}</span>
+                )}
+              </div>
+            </div>
+
+            {/* COMPTEURS DE COLIS / ET DOUBLONS */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+              <div className="form-group">
+                <label>Nbr de bobines / colis :</label>
                 <div className="quantity-selector">
                   <button type="button" onClick={() => setColisCount(Math.max(1, colisCount - 1))} className="qty-btn">-</button>
                   <input type="number" value={colisCount} className="qty-input" readOnly />
@@ -324,37 +373,41 @@ function App() {
                 </div>
               </div>
 
-              {/* COMPTEUR 2 : LES FACES PAR COLIS */}
               <div className="form-group">
-                <label>Étiquettes par colis (Faces / Doublons identiques) :</label>
+                <label>Faces / Doublons :</label>
                 <div className="quantity-selector">
                   <button type="button" onClick={() => setLabelsPerColis(Math.max(1, labelsPerColis - 1))} className="qty-btn">-</button>
                   <input type="number" value={labelsPerColis} className="qty-input" readOnly />
                   <button type="button" onClick={() => setLabelsPerColis(labelsPerColis + 1)} className="qty-btn">+</button>
                 </div>
               </div>
-
-              <button type="submit" className="submit-print-btn">
-                🖨️ IMPRIMER L'ÉTIQUETTE
-              </button>
-            </form>
-          </div>
-
-          {/* Aperçu à droite */}
-          <div className="preview-card-studio">
-            <h4>👁 Rendu de l'étiquette (Format réel 100x80 mm) :</h4>
-            <div className="zebra-label-container">
-              {previewImageUrl ? (
-                <img src={previewImageUrl} alt="Rendu Zebra" className="zebra-label-img" />
-              ) : (
-                <div style={{ padding: '20px', color: '#95a5a6' }}>Génération de l'aperçu...</div>
-              )}
             </div>
-            <p className="preview-footnote">Le visuel s'ajuste dynamiquement à vos données de gauche (y compris le client).</p>
-          </div>
 
+            <button type="submit" className="submit-print-btn" style={{ background: selectedProduct ? '#2980b9' : '#27ae60' }}>
+              🖨️ IMPRIMER L'ÉTIQUETTE
+            </button>
+          </form>
         </div>
-      )}
+
+        {/* APERÇU ÉTIQUETTE EN DIRECT */}
+        <div className="preview-card-studio">
+          <h4>👁 Rendu de l'étiquette (Format réel 100x80 mm) :</h4>
+          <div className="zebra-label-container">
+            {previewImageUrl ? (
+              <img src={previewImageUrl} alt="Rendu Zebra" className="zebra-label-img" />
+            ) : (
+              <div style={{ padding: '20px', color: '#95a5a6' }}>Génération de l'aperçu...</div>
+            )}
+          </div>
+          <p className="preview-footnote">
+            {selectedProduct 
+              ? `Liaison Catalogue active : [${selectedProduct.sku}] ${selectedProduct.name}`
+              : "Mode Saisie Volante : Sortie de Machine Directe"
+            }
+          </p>
+        </div>
+
+      </div>
     </div>
   )
 }

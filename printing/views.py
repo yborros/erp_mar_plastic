@@ -51,15 +51,24 @@ except ImportError:
 
 
 # =================================================================
-# 3. API D'IMPRESSION DES ÉTIQUETTES
+# 3. API D'IMPRESSION DES ÉTIQUETTES (MODE HYBRIDE)
 # =================================================================
 
 class PrintLabelAPIView(APIView):
     def post(self, request, *args, **kwargs):
+        is_free_input = request.data.get('is_free_input', False)
         product_id = request.data.get('product_id')
+        
         client_name = request.data.get('client_name', '')
         client_num = request.data.get('client_num', '')
         value = request.data.get('value', '')
+        
+        # Données de la saisie volante (Bobine / Extrusion)
+        custom_name = request.data.get('custom_name', 'GAINE PEBD NEUTRE')
+        laize = request.data.get('laize', '')
+        micron = request.data.get('micron', '')
+        unit_str = request.data.get('unit_str', 'Kg')
+
         colis_count = int(request.data.get('colis_count', 1))
         labels_per_colis = int(request.data.get('labels_per_colis', 1))
         
@@ -72,38 +81,57 @@ class PrintLabelAPIView(APIView):
             return Response({
                 "error": f"Le poste informatique '{code_du_poste}' n'est pas configuré dans l'admin Django."
             }, status=status.HTTP_400_BAD_REQUEST)
-        
-        # 3. Récupération du produit
-        try:
-            product = Product.objects.get(id=product_id)
-        except Product.DoesNotExist:
-            return Response({"error": "Produit introuvable"}, status=status.HTTP_404_NOT_FOUND)
 
-        # 4. Récupération du template ZPL
-        if product.custom_template:
-            zpl_template = product.custom_template.zpl_code
-        elif product.category and product.category.default_template:
-            zpl_template = product.category.default_template.zpl_code
+        # 3. Récupération du Produit ou Mode Saisie Volante Directe
+        if product_id:
+            try:
+                product = Product.objects.get(id=product_id)
+                product_name = product.name
+                sku_display = product.sku
+                unit_str = product.unit.abbreviation if product.unit else "U"
+
+                # Sélection du template ZPL (Spécifique > Catégorie > Secours)
+                if product.custom_template:
+                    zpl_template = product.custom_template.zpl_code
+                elif product.category and product.category.default_template:
+                    zpl_template = product.category.default_template.zpl_code
+                else:
+                    template_fallback = LabelTemplate.objects.first()
+                    zpl_template = template_fallback.zpl_code if template_fallback else ""
+            except Product.DoesNotExist:
+                return Response({"error": "Produit introuvable dans la base de données"}, status=status.HTTP_404_NOT_FOUND)
         else:
-            return Response({"error": "Aucun modèle ZPL configuré pour ce produit"}, status=status.HTTP_400_BAD_REQUEST)
+            # Mode Saisie Volante (Sortie de machine / Pas de product_id)
+            product_name = custom_name
+            sku_display = f"BOB-{laize}-{micron}MIC" if laize and micron else "FAB-DIRECTE"
+            
+            # Cherche un modèle dédié "Bobine" ou prend le premier modèle disponible
+            template_bobine = LabelTemplate.objects.filter(name__icontains="Bobine").first()
+            if not template_bobine:
+                template_bobine = LabelTemplate.objects.first()
+            
+            if template_bobine:
+                zpl_template = template_bobine.zpl_code
+            else:
+                return Response({"error": "Aucun modèle d'étiquette ZPL n'est configuré dans l'admin."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # 5. Construction de la chaîne ZPL globale
+        # 4. Construction de la chaîne ZPL globale
         zpl_final_global = ""
         now = datetime.datetime.now()
         today_str = now.strftime("%Y%m%d")
-        # On fige le timestamp au moment précis où l'API reçoit le clic sur le bouton vert
-        timestamp_commande = now.strftime("%H%M%S") 
+        timestamp_commande = now.strftime("%H%M%S")
 
         for i in range(colis_count):
-            # L'index i+1 garantit qu'aucun carton n'aura le même numéro de lot
             lot_unique = f"MP-{today_str}-{timestamp_commande}-{i+1}"
             
             texte_etiquette = zpl_template
-            texte_etiquette = texte_etiquette.replace("{NAME}", product.name)
-            texte_etiquette = texte_etiquette.replace("{SKU}", product.sku)
+            texte_etiquette = texte_etiquette.replace("{NAME}", str(product_name))
+            texte_etiquette = texte_etiquette.replace("{SKU}", str(sku_display))
             texte_etiquette = texte_etiquette.replace("{LOT}", lot_unique)
             texte_etiquette = texte_etiquette.replace("{VALUE}", str(value))
-            texte_etiquette = texte_etiquette.replace("{UNIT}", product.unit.abbreviation if product.unit else "U")
+            texte_etiquette = texte_etiquette.replace("{UNIT}", str(unit_str))
+            texte_etiquette = texte_etiquette.replace("{LAIZE}", str(laize))
+            texte_etiquette = texte_etiquette.replace("{MICRON}", str(micron))
             
             # Injection des données clients (si absent ou vide -> laisse un espace blanc)
             texte_etiquette = texte_etiquette.replace("{CLIENT_NAME}", str(client_name) if client_name else "")
@@ -115,10 +143,10 @@ class PrintLabelAPIView(APIView):
             zpl_final_global += texte_etiquette + "\n"
 
         # =================================================================
-        # 6. AIGUILLAGE DE L'IMPRESSION SELON LA CONFIGURATION DE L'ADMIN
+        # 5. AIGUILLAGE DE L'IMPRESSION SELON LA CONFIGURATION DE L'ADMIN
         # =================================================================
 
-        # --- MODE A : DÉSACTIVÉ / SIMULÉ (Parfait pour ton laptop) ---
+        # --- MODE A : DÉSACTIVÉ / SIMULÉ (Mode Test Laptop) ---
         if config.mode_connexion == 'DESACTIVE':
             print(f"\n--- 📝 [MODE TEST - {code_du_poste}] Flux ZPL généré ---")
             print(zpl_final_global)
@@ -128,12 +156,11 @@ class PrintLabelAPIView(APIView):
                 "message": f"[Mode Test] {colis_count * labels_per_colis} étiquette(s) simulée(s) dans le terminal du laptop."
             })
 
-        # --- MODE B : RÉSEAU (IP direct) ---
+        # --- MODE B : RÉSEAU (IP direct sur port 9100) ---
         elif config.mode_connexion == 'RESEAU':
             if not config.adresse_ip:
                 return Response({"error": "Adresse IP non configurée pour ce poste dans l'admin"}, status=status.HTTP_400_BAD_REQUEST)
             try:
-                # Connexion TCP brute sur le port de la Zebra (9100 par défaut)
                 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 s.settimeout(5)
                 s.connect((config.adresse_ip, config.port_reseau))
@@ -157,7 +184,6 @@ class PrintLabelAPIView(APIView):
                 }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
             try:
-                # Utilisation du nom d'imprimante dynamique spécifié dans l'admin du poste
                 hPrinter = win32print.OpenPrinter(config.nom_systeme_windows)
                 try:
                     hJob = win32print.StartDocPrinter(hPrinter, 1, ("Flux ERP Mar Plastic", None, "RAW"))
