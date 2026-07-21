@@ -105,43 +105,39 @@ function App() {
     const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
     const lotSimule = `MP-${today}-REEL`;
 
-    if (selectedProduct && selectedProduct.zpl_template) {
-      let zpl = selectedProduct.zpl_template;
-      const estPoids = selectedProduct.unit_symbol?.toLowerCase() === 'kg';
-      const currentInputValue = estPoids ? weight : packCount;
+    // 1. Si un produit est sélectionné, on prend son template
+    let zpl = selectedProduct?.zpl_template;
 
-      zpl = zpl.replace(/{NAME}/g, selectedProduct.name);
-      zpl = zpl.replace(/{SKU}/g, selectedProduct.sku);
-      zpl = zpl.replace(/{LOT}/g, lotSimule);
-      zpl = zpl.replace(/{VALUE}/g, currentInputValue);
-      zpl = zpl.replace(/{UNIT}/g, selectedProduct.unit_symbol || '');
-      zpl = zpl.replace(/{LAIZE}/g, laize);
-      zpl = zpl.replace(/{MICRON}/g, micron);
-      zpl = zpl.replace(/{CLIENT_NAME}/g, selectedClient ? selectedClient.nom : '');
-      zpl = zpl.replace(/{CLIENT_NUM}/g, selectedClient ? selectedClient.numero_client : '');
-
-      if (labelsPerColis > 1) {
-        zpl = zpl.replace('^XZ', `^PQ${labelsPerColis}^XZ`);
-      }
-      return encodeURIComponent(zpl);
+    // 2. Si aucun produit n'est sélectionné (Saisie Volante), 
+    // on cherche le template "Bobine" chargé depuis Django
+    if (!zpl) {
+      const templateBobine = categories.flatMap(c => c.default_template).find(t => t?.name?.toLowerCase().includes('bobine'));
+      zpl = templateBobine ? templateBobine.zpl_code : null;
     }
 
-    // Modèle ZPL de secours pour la Saisie Volante Directe
-    let zplVolant = `^XA^CI28^PW800^LL600^FO40,30^A0N,28,28^FDMAR PLASTIC - FABRICATION DIRECTE^FS^FO40,65^A0N,20,20^FDICE: 001847540000028  NM: 11.4.050^FS^FO20,95^GB760,3,3^FS^FO40,115^A0N,22,22^FDCLIENT:^FS^FO150,110^A0N,35,35^FD{CLIENT_NAME}^FS^FO40,160^A0N,22,22^FDLAIZE:^FS^FO130,150^A0N,40,40^FD{LAIZE} mm^FS^FO450,160^A0N,22,22^FDEPAISS:^FS^FO550,150^A0N,40,40^FD{MICRON} um^FS^FO40,215^A0N,22,22^FDARTICLE:^FS^FO150,210^A0N,30,30^FB600,2,,L^FD{NAME}^FS^FO40,270^A0N,25,25^FDQUANTITE:^FS^FO200,255^A0N,75,75^FD{VALUE} {UNIT}^FS^FO120,380^BY3^BCN,120,Y,N,N^FD{LOT}^FS^XZ`;
+    // 3. Si toujours rien, fallback sur le modèle de secours
+    if (!zpl) {
+      zpl = `^XA^CI28^PW800^LL600^FO40,30^A0N,28,28^FDMAR PLASTIC^FS^FO40,115^A0N,22,22^FDCLIENT:^FS^FO150,110^A0N,35,35^FD{CLIENT_NAME}^FS^FO40,160^A0N,22,22^FDLAIZE:^FS^FO130,150^A0N,40,40^FD{LAIZE} mm^FS^FO450,160^A0N,22,22^FDEPAISS:^FS^FO550,150^A0N,40,40^FD{MICRON} um^FS^FO40,215^A0N,22,22^FDARTICLE:^FS^FO150,210^A0N,30,30^FB600,2,,L^FD{NAME}^FS^FO40,270^A0N,25,25^FDQUANTITE:^FS^FO200,255^A0N,75,75^FD{VALUE} {UNIT}^FS^FO120,380^BY3^BCN,120,Y,N,N^FD{LOT}^FS^XZ`;
+    }
 
-    zplVolant = zplVolant.replace(/{NAME}/g, designationVolante);
-    zplVolant = zplVolant.replace(/{LAIZE}/g, laize);
-    zplVolant = zplVolant.replace(/{MICRON}/g, micron);
-    zplVolant = zplVolant.replace(/{VALUE}/g, weight);
-    zplVolant = zplVolant.replace(/{UNIT}/g, uniteVolante);
-    zplVolant = zplVolant.replace(/{LOT}/g, lotSimule);
-    zplVolant = zplVolant.replace(/{CLIENT_NAME}/g, selectedClient ? selectedClient.nom : '');
+    const estPoids = selectedProduct ? (selectedProduct.unit_symbol?.toLowerCase() === 'kg') : (uniteVolante.toLowerCase() === 'kg');
+    const currentInputValue = estPoids ? weight : packCount;
+
+    zpl = zpl.replace(/{NAME}/g, selectedProduct ? selectedProduct.name : designationVolante);
+    zpl = zpl.replace(/{SKU}/g, selectedProduct ? selectedProduct.sku : `BOB-${laize}-${micron}MIC`);
+    zpl = zpl.replace(/{LOT}/g, lotSimule);
+    zpl = zpl.replace(/{VALUE}/g, currentInputValue);
+    zpl = zpl.replace(/{UNIT}/g, selectedProduct ? selectedProduct.unit_symbol : uniteVolante);
+    zpl = zpl.replace(/{LAIZE}/g, laize);
+    zpl = zpl.replace(/{MICRON}/g, micron);
+    zpl = zpl.replace(/{CLIENT_NAME}/g, selectedClient ? selectedClient.nom : '');
+    zpl = zpl.replace(/{CLIENT_NUM}/g, selectedClient ? selectedClient.numero_client : '');
 
     if (labelsPerColis > 1) {
-      zplVolant = zplVolant.replace('^XZ', `^PQ${labelsPerColis}^XZ`);
+      zpl = zpl.replace('^XZ', `^PQ${labelsPerColis}^XZ`);
     }
 
-    return encodeURIComponent(zplVolant);
+    return encodeURIComponent(zpl);
   }
 
   const previewImageUrl = (selectedProduct || isFreeInputMode) 
