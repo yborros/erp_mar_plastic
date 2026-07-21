@@ -30,6 +30,7 @@ ALLOWED_HOSTS = [
     'localhost',
     '.tailscale.net',  # Autorise les noms de domaine Tailscale
     '100.99.79.99',           # Autorise toutes les IPs de ton réseau Tailscale
+    '*',
 ]
 
 # Application definition
