@@ -26,10 +26,10 @@ function App() {
   const [selectedClient, setSelectedClient] = useState(null) 
   const [clientSearchTerm, setClientSearchTerm] = useState('') 
 
-  // Champs de saisie (Volante + Réglages Bobine)
+  // Champs de saisie (Volante + Réglages Bobine en CM et µm)
   const [designationVolante, setDesignationVolante] = useState('GAINE PEBD NEUTRE')
-  const [laize, setLaize] = useState('500')
-  const [micron, setMicron] = useState('50')
+  const [laize, setLaize] = useState('50') // Valeur en cm
+  const [micron, setMicron] = useState('50') // Valeur en µm
   const [weight, setWeight] = useState('180')
   const [packCount, setPackCount] = useState('500')
   const [uniteVolante, setUniteVolante] = useState('Kg')
@@ -105,26 +105,23 @@ function App() {
     const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
     const lotSimule = `MP-${today}-REEL`;
 
-    // 1. Si un produit est sélectionné, on prend son template
     let zpl = selectedProduct?.zpl_template;
 
-    // 2. Si aucun produit n'est sélectionné (Saisie Volante), 
-    // on cherche le template "Bobine" chargé depuis Django
     if (!zpl) {
       const templateBobine = categories.flatMap(c => c.default_template).find(t => t?.name?.toLowerCase().includes('bobine'));
       zpl = templateBobine ? templateBobine.zpl_code : null;
     }
 
-    // 3. Si toujours rien, fallback sur le modèle de secours
+    // Template par défaut avec cm et µm
     if (!zpl) {
-      zpl = `^XA^CI28^PW800^LL600^FO40,30^A0N,28,28^FDMAR PLASTIC^FS^FO40,115^A0N,22,22^FDCLIENT:^FS^FO150,110^A0N,35,35^FD{CLIENT_NAME}^FS^FO40,160^A0N,22,22^FDLAIZE:^FS^FO130,150^A0N,40,40^FD{LAIZE} mm^FS^FO450,160^A0N,22,22^FDEPAISS:^FS^FO550,150^A0N,40,40^FD{MICRON} um^FS^FO40,215^A0N,22,22^FDARTICLE:^FS^FO150,210^A0N,30,30^FB600,2,,L^FD{NAME}^FS^FO40,270^A0N,25,25^FDQUANTITE:^FS^FO200,255^A0N,75,75^FD{VALUE} {UNIT}^FS^FO120,380^BY3^BCN,120,Y,N,N^FD{LOT}^FS^XZ`;
+      zpl = `^XA^CI28^PW800^LL600^FO40,30^A0N,28,28^FDMAR PLASTIC - FABRICATION DIRECTE^FS^FO40,65^A0N,20,20^FDICE: 001847540000028  NM: 11.4.050^FS^FO20,95^GB760,3,3^FS^FO40,115^A0N,22,22^FDCLIENT:^FS^FO150,110^A0N,35,35^FD{CLIENT_NAME}^FS^FO40,160^A0N,22,22^FDLAIZE:^FS^FO130,150^A0N,40,40^FD{LAIZE} cm^FS^FO450,160^A0N,22,22^FDEPAISS:^FS^FO550,150^A0N,40,40^FD{MICRON} \x85m^FS^FO40,215^A0N,22,22^FDARTICLE:^FS^FO150,210^A0N,30,30^FB600,2,,L^FD{NAME}^FS^FO40,270^A0N,25,25^FDQUANTITE:^FS^FO200,255^A0N,75,75^FD{VALUE} {UNIT}^FS^FO120,380^BY3^BCN,120,Y,N,N^FD{LOT}^FS^XZ`;
     }
 
     const estPoids = selectedProduct ? (selectedProduct.unit_symbol?.toLowerCase() === 'kg') : (uniteVolante.toLowerCase() === 'kg');
     const currentInputValue = estPoids ? weight : packCount;
 
     zpl = zpl.replace(/{NAME}/g, selectedProduct ? selectedProduct.name : designationVolante);
-    zpl = zpl.replace(/{SKU}/g, selectedProduct ? selectedProduct.sku : `BOB-${laize}-${micron}MIC`);
+    zpl = zpl.replace(/{SKU}/g, selectedProduct ? selectedProduct.sku : `BOB-${laize}CM-${micron}MIC`);
     zpl = zpl.replace(/{LOT}/g, lotSimule);
     zpl = zpl.replace(/{VALUE}/g, currentInputValue);
     zpl = zpl.replace(/{UNIT}/g, selectedProduct ? selectedProduct.unit_symbol : uniteVolante);
@@ -219,7 +216,6 @@ function App() {
               ))}
             </div>
 
-            {/* BOUTON D'ACCÈS DIRECT À LA SAISIE VOLANTE */}
             <button 
               type="button" 
               onClick={() => setIsFreeInputMode(true)}
@@ -347,27 +343,29 @@ function App() {
                 </div>
               )}
 
-              {/* REGLAGES EXTRUSION (LAIZE & MICRON) */}
+              {/* RÉGLAGES EXTRUSION : LAIZE EN CM ET ÉPAISSEUR EN µm */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
                 <div className="form-group">
-                  <label>Laize (mm) :</label>
+                  <label>Laize (cm) :</label>
                   <input 
                     type="number" 
                     value={laize} 
                     onChange={(e) => setLaize(e.target.value)} 
                     className="form-input" 
                     style={{ width: '100%', borderRadius: '6px' }}
+                    placeholder="ex: 50"
                   />
                 </div>
 
                 <div className="form-group">
-                  <label>Épaisseur ($\mu$m) :</label>
+                  <label>Épaisseur (µm / µ) :</label>
                   <input 
                     type="number" 
                     value={micron} 
                     onChange={(e) => setMicron(e.target.value)} 
                     className="form-input" 
                     style={{ width: '100%', borderRadius: '6px' }}
+                    placeholder="ex: 50"
                   />
                 </div>
               </div>
