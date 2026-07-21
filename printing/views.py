@@ -73,7 +73,7 @@ class PrintLabelAPIView(APIView):
         labels_per_colis = int(request.data.get('labels_per_colis', 1))
         
         # 1. Identification du poste physique via le fichier .env local
-        code_du_poste = os.environ.get('IDENTIFIANT_POSTE', 'PC_LAPTOP')
+        code_du_poste = request.data.get('code_poste') or os.environ.get('IDENTIFIANT_POSTE', 'PC_BUREAU')
         
         # 2. Récupération de la configuration d'impression pour ce poste spécifique
         config = ConfigurationImprimante.objects.filter(code_poste=code_du_poste).first()

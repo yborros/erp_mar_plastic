@@ -145,7 +145,7 @@ function App() {
     ? `http://api.labelary.com/v1/printers/8dpmm/labels/3.94x3.15/0/${getZPLTemplate()}` 
     : ''
 
-  const handlePrintTest = (e) => {
+const handlePrintTest = (e) => {
     e.preventDefault();
     const API_BASE = `http://${window.location.hostname}:8000`;
 
@@ -155,6 +155,9 @@ function App() {
     const finalColisCount = selectedProduct ? colisCount : 1;
 
     const payload = {
+      // 👈 AJOUT ICI : Lit la variable d'environnement React ou met 'PI_EXTRUSION_01' par défaut
+      code_poste: import.meta.env.VITE_CODE_POSTE || "PI_EXTRUSION_01",
+      
       is_free_input: !selectedProduct,
       product_id: selectedProduct ? selectedProduct.id : null,
       custom_name: designationVolante,
