@@ -7,7 +7,10 @@ from rest_framework import viewsets, status
 from rest_framework.serializers import ModelSerializer
 from dotenv import load_dotenv
 
-from .models import Category, LabelTemplate, Product, ConfigurationImprimante, Client
+from .models import (
+    Category, LabelTemplate, Product, ConfigurationImprimante, 
+    Client, ImpressionEtiquette
+)
 from .serializers import CategorySerializer, LabelTemplateSerializer, ProductSerializer
 
 # Chargement du fichier .env au démarrage du serveur
@@ -31,7 +34,7 @@ def get_client_ip(request):
 
 
 # =================================================================
-# 1. VIEWSETS POUR L'API REST (LECTURE DES DONNÉES)
+# 1. VIEWSETS POUR L'API REST (LECTURE DES DONNÉES & HISTORIQUE)
 # =================================================================
 
 class CategoryViewSet(viewsets.ReadOnlyModelViewSet):
@@ -56,6 +59,17 @@ class ClientViewSet(viewsets.ModelViewSet):
     serializer_class = ClientSerializer
 
 
+# Serializer et ViewSet pour l'historique des impressions
+class ImpressionEtiquetteSerializer(ModelSerializer):
+    class Meta:
+        model = ImpressionEtiquette
+        fields = '__all__'
+
+class ImpressionEtiquetteViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = ImpressionEtiquette.objects.all()
+    serializer_class = ImpressionEtiquetteSerializer
+
+
 # =================================================================
 # 2. PILOTAGE DES IMPRIMANTES WINDOWS
 # =================================================================
@@ -67,7 +81,7 @@ except ImportError:
 
 
 # =================================================================
-# 3. API D'IMPRESSION DES ÉTIQUETTES (DÉTECTION IP DYNAMIQUE)
+# 3. API D'IMPRESSION DES ÉTIQUETTES (DÉTECTION IP & TRAÇABILITÉ)
 # =================================================================
 
 class PrintLabelAPIView(APIView):
@@ -120,17 +134,18 @@ class PrintLabelAPIView(APIView):
         # -----------------------------------------------------------------
         # 2. RÉCUPÉRATION DU PRODUIT ET DU TEMPLATE ZPL
         # -----------------------------------------------------------------
+        product_obj = None
         if product_id:
             try:
-                product = Product.objects.get(id=product_id)
-                product_name = product.name
-                sku_display = product.sku
-                unit_str = product.unit.abbreviation if product.unit else "U"
+                product_obj = Product.objects.get(id=product_id)
+                product_name = product_obj.name
+                sku_display = product_obj.sku
+                unit_str = product_obj.unit.abbreviation if product_obj.unit else "U"
 
-                if product.custom_template:
-                    zpl_template = product.custom_template.zpl_code
-                elif product.category and product.category.default_template:
-                    zpl_template = product.category.default_template.zpl_code
+                if product_obj.custom_template:
+                    zpl_template = product_obj.custom_template.zpl_code
+                elif product_obj.category and product_obj.category.default_template:
+                    zpl_template = product_obj.category.default_template.zpl_code
                 else:
                     template_fallback = LabelTemplate.objects.first()
                     zpl_template = template_fallback.zpl_code if template_fallback else ""
@@ -178,7 +193,31 @@ class PrintLabelAPIView(APIView):
             zpl_final_global += texte_etiquette + "\n"
 
         # -----------------------------------------------------------------
-        # 4. ROUTAGE ET ENVOI À L'IMPRIMANTE
+        # 4. ENREGISTREMENT DANS L'HISTORIQUE DE PRODUCTION (TRAÇABILITÉ)
+        # -----------------------------------------------------------------
+        total_etiquettes_imprimees = colis_count * labels_per_colis
+        client_obj = Client.objects.filter(nom__iexact=client_name).first() if client_name else None
+
+        ImpressionEtiquette.objects.create(
+            code_poste=config.code_poste,
+            ip_client=client_ip,
+            produit_nom=product_name,
+            sku=sku_display,
+            client_nom=client_name,
+            laize=str(laize) if laize else None,
+            micron=str(micron) if micron else None,
+            quantite_valeur=str(value),
+            unite=str(unit_str),
+            colis_count=colis_count,
+            labels_per_colis=labels_per_colis,
+            total_etiquettes=total_etiquettes_imprimees,
+            zpl_genere=zpl_final_global,
+            product=product_obj,
+            client=client_obj
+        )
+
+        # -----------------------------------------------------------------
+        # 5. ROUTAGE ET ENVOI À L'IMPRIMANTE
         # -----------------------------------------------------------------
 
         # --- MODE A : DÉSACTIVÉ / TEST ---
@@ -188,7 +227,7 @@ class PrintLabelAPIView(APIView):
             print("--------------------------------------------------\n")
             return Response({
                 "status": "success",
-                "message": f"[Mode Test - {config.code_poste}] {colis_count * labels_per_colis} étiquette(s) simulée(s)."
+                "message": f"[Mode Test - {config.code_poste}] {total_etiquettes_imprimees} étiquette(s) enregistrée(s) et simulée(s)."
             })
 
         # --- MODE B : RÉSEAU (IP direct sur port 9100) ---
