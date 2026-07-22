@@ -123,13 +123,21 @@ class PrintLabelAPIView(APIView):
             env_code = os.environ.get('IDENTIFIANT_POSTE', 'PC_BUREAU')
             config = ConfigurationImprimante.objects.filter(code_poste=env_code).first()
 
-        # D) Repli par défaut si le poste n'est pas répertorié
+        # D) REPLI AUTOMATIQUE RÉSEAU : Si l'IP client n'est pas reconnue,
+        #    on sélectionne la première imprimante configurée en mode RÉSEAU
+        if not config:
+            config = ConfigurationImprimante.objects.filter(mode_connexion='RESEAU').first()
+
+        # E) Repli d'urgence si AUCUNE configuration n'existe dans la base
+        if not config:
+            config = ConfigurationImprimante.objects.first()
+
         if not config:
             return Response({
-                "error": f"Poste non reconnu pour l'IP client '{client_ip}'. Veuillez associer cette IP à un poste dans l'admin Django."
+                "error": f"Poste non reconnu pour l'IP client '{client_ip}'. Veuillez créer une configuration dans l'admin Django."
             }, status=status.HTTP_400_BAD_REQUEST)
 
-        print(f"🖨️ [Impression] Reçue de l'IP {client_ip} -> Poste identifié: {config.code_poste}")
+        print(f"🖨️ [Impression] Reçue de l'IP {client_ip} -> Configuration utilisée: {config.code_poste} ({config.adresse_ip})")
 
         # -----------------------------------------------------------------
         # 2. RÉCUPÉRATION DU PRODUIT ET DU TEMPLATE ZPL

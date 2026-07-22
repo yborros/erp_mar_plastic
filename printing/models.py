@@ -127,11 +127,18 @@ class ConfigurationImprimante(models.Model):
     code_poste = models.CharField(
         max_length=50, 
         unique=True, 
-        help_text="Ex: PC_LAPTOP, PC_BUREAU, PC_ATELIER_1. Doit correspondre au .env"
+        help_text="Ex: PC_LAPTOP, PC_BUREAU, PC_EXTRUSION_1. Doit correspondre au .env"
     )
-    nom_emplacement = models.CharField(max_length=100, help_text="Ex: Bureau de Yaniv, Ligne Conditionnement")
+    nom_emplacement = models.CharField(max_length=100, help_text="Ex: Bureau de Yaniv, Ligne Extrusion 1")
     
-    mode_connexion = models.CharField(max_length=15, choices=MODE_CHOICES, default='USB')
+    # 🔹 NOUVEAU : IP du poste client (navigateur web React)
+    ip_poste_client = models.GenericIPAddressField(
+        blank=True, null=True, 
+        verbose_name="IP Poste Client (Navigateur)",
+        help_text="Ex: 192.168.100.26 (L'IP du PC qui envoie la commande d'impression)"
+    )
+
+    mode_connexion = models.CharField(max_length=15, choices=MODE_CHOICES, default='RESEAU')
     
     # Paramètres USB
     nom_systeme_windows = models.CharField(
@@ -141,8 +148,12 @@ class ConfigurationImprimante(models.Model):
         help_text="Nom exact de l'imprimante sous Windows (requis si mode USB)"
     )
     
-    # Paramètres Réseau
-    adresse_ip = models.GenericIPAddressField(default="192.168.100.200", blank=True, null=True)
+    # 🔹 IP de destination (Raspberry Pi ou Imprimante réseau direct)
+    adresse_ip = models.GenericIPAddressField(
+        default="192.168.100.37", blank=True, null=True,
+        verbose_name="IP Imprimante / Raspberry Pi",
+        help_text="Ex: 192.168.100.37 (L'IP du Pi sur lequel est branchée la Zebra)"
+    )
     port_reseau = models.IntegerField(default=9100, help_text="Par défaut 9100 pour les Zebra")
 
     class Meta:
@@ -150,9 +161,7 @@ class ConfigurationImprimante(models.Model):
         verbose_name_plural = "Configuration Imprimantes Postes"
 
     def __str__(self):
-        return f"{self.nom_emplacement} ({self.code_poste}) -> {self.mode_connexion}"
-
-
+        return f"{self.nom_emplacement} ({self.code_poste}) -> Client:{self.ip_poste_client} | Pi:{self.adresse_ip}"
 class ImpressionEtiquette(models.Model):
     """ Historique complet des tirages d'étiquettes en usine (Traçabilité) """
     date_impression = models.DateTimeField(auto_now_add=True, verbose_name="Date & Heure")
