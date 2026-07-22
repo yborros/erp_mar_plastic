@@ -30,8 +30,8 @@ function App() {
   const [selectedMatiere, setSelectedMatiere] = useState('PE')
 
   // Champs de saisie (Volante + Réglages Bobine en CM et µm)
-  const [laize, setLaize] = useState('50') // Valeur en cm
-  const [micron, setMicron] = useState('50') // Valeur en µm
+  const [laize, setLaize] = useState('50')
+  const [micron, setMicron] = useState('50')
   const [weight, setWeight] = useState('180')
   const [packCount, setPackCount] = useState('500')
   const [uniteVolante, setUniteVolante] = useState('Kg')
@@ -154,8 +154,8 @@ function App() {
 
     const finalColisCount = selectedProduct ? colisCount : 1;
 
+    // Payload générique : l'identification se fait côté serveur via l'IP
     const payload = {
-      code_poste: import.meta.env.VITE_CODE_POSTE || (window.location.hostname.includes('192.168.100.37') || window.location.hostname.includes('extrusion-01') ? "PI_EXTRUSION_01" : "PC_BUREAU"),
       is_free_input: !selectedProduct,
       product_id: selectedProduct ? selectedProduct.id : null,
       custom_name: designationVolante,
@@ -380,7 +380,7 @@ function App() {
                 </div>
               )}
 
-              {/* RÉGLAGES EXTRUSION : LAIZE EN CM ET ÉPAISSEUR EN µm (MASQUÉ EN MODE CATALOGUE) */}
+              {/* RÉGLAGES EXTRUSION : LAIZE EN CM ET ÉPAISSEUR EN µm (SAISIE VOLANTE UNIQUEMENT) */}
               {!selectedProduct && (
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
                   <div className="form-group">
