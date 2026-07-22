@@ -155,7 +155,7 @@ function App() {
     const finalColisCount = selectedProduct ? colisCount : 1;
 
     const payload = {
-      code_poste: import.meta.env.VITE_CODE_POSTE || "PI_EXTRUSION_01",
+      code_poste: import.meta.env.VITE_CODE_POSTE || (window.location.hostname.includes('192.168.100.37') || window.location.hostname.includes('extrusion-01') ? "PI_EXTRUSION_01" : "PC_BUREAU"),
       is_free_input: !selectedProduct,
       product_id: selectedProduct ? selectedProduct.id : null,
       custom_name: designationVolante,
