@@ -164,14 +164,18 @@ function App() {
     const estPoids = selectedProduct ? (selectedProduct.unit_symbol?.toLowerCase() === 'kg') : (uniteVolante.toLowerCase() === 'kg');
     const currentInputValue = estPoids ? weight : packCount;
 
-    // Remplacements variables
+    // Remplacements variables spécifiques Carton
     zpl = zpl.replace(/{NAME}/g, isCartonTemplate ? cartonTitre : (selectedProduct ? selectedProduct.name : designationVolante));
     zpl = zpl.replace(/{TYPE_DETAILS}/g, cartonType);
     zpl = zpl.replace(/{QTY_DETAILS}/g, cartonQty);
     zpl = zpl.replace(/{DESTINATION}/g, selectedClient ? selectedClient.nom : cartonDest);
-    zpl = zpl.replace(/{POIDS_NET}/g, cartonPoidsNet);
-    zpl = zpl.replace(/{POIDS_BRUT}/g, cartonPoidsBrut);
+    
+    // Nettoyage au cas où l'utilisateur saisit déjà "kg" dans le champ texte
+    const cleanPoidsNet = cartonPoidsNet.toLowerCase().includes('kg') ? cartonPoidsNet : `${cartonPoidsNet}`;
+    const cleanPoidsBrut = cartonPoidsBrut.toLowerCase().includes('kg') ? cartonPoidsBrut : `${cartonPoidsBrut}`;
 
+    zpl = zpl.replace(/{POIDS_NET}/g, cleanPoidsNet);
+    zpl = zpl.replace(/{POIDS_BRUT}/g, cleanPoidsBrut);
     zpl = zpl.replace(/{SKU}/g, selectedProduct ? selectedProduct.sku : `BOB-${selectedMatiere}-${laize}CM-${micron}MIC`);
     zpl = zpl.replace(/{LOT}/g, lotSimule);
     zpl = zpl.replace(/{VALUE}/g, currentInputValue);

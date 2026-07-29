@@ -99,6 +99,13 @@ class PrintLabelAPIView(APIView):
         micron = request.data.get('micron', '')
         unit_str = request.data.get('unit_str', 'Kg')
 
+        # Données spécifiques à l'étiquette Carton / Expédition
+        type_details = request.data.get('type_details', '')
+        qty_details = request.data.get('qty_details', '')
+        destination = request.data.get('destination', '')
+        poids_net = request.data.get('poids_net', '')
+        poids_brut = request.data.get('poids_brut', '')
+
         colis_count = int(request.data.get('colis_count', 1))
         labels_per_colis = int(request.data.get('labels_per_colis', 1))
         
@@ -196,10 +203,15 @@ class PrintLabelAPIView(APIView):
         today_str = now.strftime("%Y%m%d")
         timestamp_commande = now.strftime("%H%M%S")
 
+        # Détermination de la destination (Client ou saisie manuelle)
+        dest_val = client_name if client_name else (destination if destination else "SUISSE")
+
         for i in range(colis_count):
-            lot_unique = f"MP-{today_str}-{timestamp_commande}-{i+1}"
+            lot_unique = f"SO-{today_str[2:]}-{timestamp_commande[-4:]}"
             
             texte_etiquette = zpl_template
+            
+            # --- Substitutions Standard ---
             texte_etiquette = texte_etiquette.replace("{NAME}", str(product_name))
             texte_etiquette = texte_etiquette.replace("{SKU}", str(sku_display))
             texte_etiquette = texte_etiquette.replace("{LOT}", lot_unique)
@@ -207,9 +219,15 @@ class PrintLabelAPIView(APIView):
             texte_etiquette = texte_etiquette.replace("{UNIT}", str(unit_str))
             texte_etiquette = texte_etiquette.replace("{LAIZE}", str(laize))
             texte_etiquette = texte_etiquette.replace("{MICRON}", str(micron))
-            
             texte_etiquette = texte_etiquette.replace("{CLIENT_NAME}", str(client_name) if client_name else "")
             texte_etiquette = texte_etiquette.replace("{CLIENT_NUM}", str(client_num) if client_num else "")
+            
+            # --- Substitutions spécifiques Étiquette Carton Expédition ---
+            texte_etiquette = texte_etiquette.replace("{TYPE_DETAILS}", str(type_details))
+            texte_etiquette = texte_etiquette.replace("{QTY_DETAILS}", str(qty_details))
+            texte_etiquette = texte_etiquette.replace("{DESTINATION}", str(dest_val).upper())
+            texte_etiquette = texte_etiquette.replace("{POIDS_NET}", str(poids_net))
+            texte_etiquette = texte_etiquette.replace("{POIDS_BRUT}", str(poids_brut))
             
             if labels_per_colis > 1:
                 texte_etiquette = texte_etiquette.replace("^XZ", f"^PQ{labels_per_colis}^XZ")
