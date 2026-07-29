@@ -56,21 +56,31 @@ function App() {
   useEffect(() => {
     const API_BASE = `http://${window.location.hostname}:8000`;
 
+    const fetchJson = (url) => 
+      fetch(url)
+        .then(res => res.ok ? res.json() : [])
+        .catch(err => {
+          console.warn(`Erreur lors du chargement de ${url}`, err);
+          return [];
+        });
+
     Promise.all([
-      fetch(`${API_BASE}/api/products/`).then(res => res.json()),
-      fetch(`${API_BASE}/api/categories/`).then(res => res.json()),
-      fetch(`${API_BASE}/api/clients/`).then(res => res.json()),
-      fetch(`${API_BASE}/api/label-templates/`).then(res => res.json())
+      fetchJson(`${API_BASE}/api/products/`),
+      fetchJson(`${API_BASE}/api/categories/`),
+      fetchJson(`${API_BASE}/api/clients/`),
+      fetchJson(`${API_BASE}/api/templates/`) // <--- Alignement exact sur router.register(r'templates')
     ])
     .then(([productsData, categoriesData, clientsData, templatesData]) => {
-      setProducts(productsData)
-      setCategories(categoriesData)
-      setClients(clientsData)
-      setTemplates(templatesData)
-      setFilteredProducts(productsData)
-      setLoading(false)
+      setProducts(productsData);
+      setCategories(categoriesData);
+      setClients(clientsData);
+      setTemplates(templatesData);
+      setFilteredProducts(productsData);
     })
     .catch(error => console.error("Erreur API :", error))
+    .finally(() => {
+      setLoading(false); // Débloque toujours l'écran de chargement
+    });
   }, [])
 
   useEffect(() => {
@@ -114,7 +124,7 @@ function App() {
       .sort((a, b) => a.nom.localeCompare(b.nom));
   }
 
-  // Détection si le modèle choisi est l'étiquette Carton / Expédition
+  // Détection du modèle sélectionné (ou fallback sur mots-clés)
   const chosenTemplateObj = templates.find(t => String(t.id) === String(selectedTemplateId));
   const isCartonTemplate = chosenTemplateObj && (
     chosenTemplateObj.name.toLowerCase().includes('carton') || 
@@ -142,14 +152,19 @@ function App() {
       zpl = templateBobine ? templateBobine.zpl_code : null;
     }
 
+    // Fallback dynamique selon le mode si aucun ZPL n'est chargé en BDD
     if (!zpl) {
-      zpl = `^XA^CI28^PW800^LL600^FO40,30^A0N,28,28^FDMAR PLASTIC - FABRICATION DIRECTE^FS^FO40,65^A0N,20,20^FDICE: 001847540000028  NM: 11.4.050^FS^FO20,95^GB760,3,3^FS^FO40,115^A0N,22,22^FDCLIENT:^FS^FO150,110^A0N,35,35^FD{CLIENT_NAME}^FS^FO40,160^A0N,22,22^FDLAIZE:^FS^FO130,150^A0N,40,40^FD{LAIZE} cm^FS^FO450,160^A0N,22,22^FDEPAISS:^FS^FO550,150^A0N,40,40^FD{MICRON} \x85m^FS^FO40,215^A0N,22,22^FDARTICLE:^FS^FO150,210^A0N,30,30^FB600,2,,L^FD{NAME}^FS^FO40,270^A0N,25,25^FDQUANTITE:^FS^FO200,255^A0N,75,75^FD{VALUE} {UNIT}^FS^FO120,380^BY3^BCN,120,Y,N,N^FD{LOT}^FS^XZ`;
+      if (isCartonTemplate) {
+        zpl = `^XA^CI28^PW800^LL600^FO30,30^GB740,65,2^FS^FO50,48^A0N,30,30^FD{NAME}^FS^FO50,110^A0N,22,22^FDType: {TYPE_DETAILS}^FS^FO50,140^A0N,22,22^FDQty: {QTY_DETAILS}^FS^FO30,175^GB740,75,2^FS^FO50,188^A0N,24,24^FDMADE IN MOROCCO^FS^FO50,218^A0N,20,20^FDLot: {LOT}^FS^FO450,218^A0N,20,20^FDDEST: {DESTINATION}^FS^FO40,268^A0N,20,20^FDPoids Net: {POIDS_NET}^FS^FO450,268^A0N,20,20^FDPoids Brut: {POIDS_BRUT}^FS^FO30,305^GB230,45,2^FS^FO30,305^GB480,45,2^FS^FO30,305^GB740,45,2^FS^FO80,318^A0N,18,18^FDFRAGILE^FS^FO300,318^A0N,18,18^FDKEEP DRY^FS^FO600,318^A0N,18,18^FDUP^FS^FO150,380^BY2,3,100^BCN,100,N,N,N^FD{LOT}^FS^FO310,490^A0N,18,18^FD{LOT}^FS^XZ`;
+      } else {
+        zpl = `^XA^CI28^PW800^LL600^FO40,30^A0N,28,28^FDMAR PLASTIC - FABRICATION DIRECTE^FS^FO40,65^A0N,20,20^FDICE: 001847540000028  NM: 11.4.050^FS^FO20,95^GB760,3,3^FS^FO40,115^A0N,22,22^FDCLIENT:^FS^FO150,110^A0N,35,35^FD{CLIENT_NAME}^FS^FO40,160^A0N,22,22^FDLAIZE:^FS^FO130,150^A0N,40,40^FD{LAIZE} cm^FS^FO450,160^A0N,22,22^FDEPAISS:^FS^FO550,150^A0N,40,40^FD{MICRON} \x85m^FS^FO40,215^A0N,22,22^FDARTICLE:^FS^FO150,210^A0N,30,30^FB600,2,,L^FD{NAME}^FS^FO40,270^A0N,25,25^FDQUANTITE:^FS^FO200,255^A0N,75,75^FD{VALUE} {UNIT}^FS^FO120,380^BY3^BCN,120,Y,N,N^FD{LOT}^FS^XZ`;
+      }
     }
 
     const estPoids = selectedProduct ? (selectedProduct.unit_symbol?.toLowerCase() === 'kg') : (uniteVolante.toLowerCase() === 'kg');
     const currentInputValue = estPoids ? weight : packCount;
 
-    // Remplacements génériques + spécifiques Carton
+    // Remplacements variables
     zpl = zpl.replace(/{NAME}/g, isCartonTemplate ? cartonTitre : (selectedProduct ? selectedProduct.name : designationVolante));
     zpl = zpl.replace(/{TYPE_DETAILS}/g, cartonType);
     zpl = zpl.replace(/{QTY_DETAILS}/g, cartonQty);
@@ -270,7 +285,7 @@ function App() {
               onClick={() => setIsFreeInputMode(true)}
               style={{ background: '#27ae60', color: '#fff', border: 'none', padding: '10px 18px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '14px' }}
             >
-              ⚡ Saisie Volante / Extrusion
+              ⚡ Saisie Volante / Format Libre
             </button>
           </div>
 
@@ -321,17 +336,17 @@ function App() {
             
             <div className="product-summary">
               <span className="print-badge" style={{ background: selectedProduct ? '#2980b9' : '#27ae60' }}>
-                {selectedProduct ? selectedProduct.category_name : 'SAISIE VOLANTE / EXTRUSION'}
+                {selectedProduct ? selectedProduct.category_name : 'SAISIE VOLANTE'}
               </span>
               <h3>{isCartonTemplate ? cartonTitre : (selectedProduct ? selectedProduct.name : designationVolante)}</h3>
               {selectedProduct && <p><strong>Réf SKU :</strong> {selectedProduct.sku}</p>}
             </div>
 
             <form onSubmit={handlePrintTest} className="print-form">
-              
+
               {/* SÉLECTION DU MODÈLE D'ÉTIQUETTE (TEMPLATE) */}
               <div className="form-group" style={{ background: '#f0f3f6', padding: '12px', borderRadius: '8px', border: '2px solid #3498db' }}>
-                <label style={{ fontWeight: 'bold', color: '#2c3e50', display: 'block', marginBottom: '6px' }}>📋 Choix du Modèle d'ÉTIQUETTE :</label>
+                <label style={{ fontWeight: 'bold', color: '#2c3e50', display: 'block', marginBottom: '6px' }}>📋 Modèle d'étiquette ZPL :</label>
                 <select 
                   className="form-input"
                   value={selectedTemplateId} 
