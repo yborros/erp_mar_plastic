@@ -5,6 +5,7 @@ function App() {
   const [products, setProducts] = useState([])
   const [categories, setCategories] = useState([])
   const [clients, setClients] = useState([]) 
+  const [templates, setTemplates] = useState([]) // <--- Liste des modèles ZPL
   const [filteredProducts, setFilteredProducts] = useState([])
   
   // --- SYSTÈME DE FAVORIS ---
@@ -25,6 +26,7 @@ function App() {
   const [selectedProduct, setSelectedProduct] = useState(null)
   const [selectedClient, setSelectedClient] = useState(null) 
   const [clientSearchTerm, setClientSearchTerm] = useState('') 
+  const [selectedTemplateId, setSelectedTemplateId] = useState('') // <--- Template sélectionné
 
   // Choix rapide de matière pour Saisie Volante (PP / PE)
   const [selectedMatiere, setSelectedMatiere] = useState('PE')
@@ -50,12 +52,14 @@ function App() {
     Promise.all([
       fetch(`${API_BASE}/api/products/`).then(res => res.json()),
       fetch(`${API_BASE}/api/categories/`).then(res => res.json()),
-      fetch(`${API_BASE}/api/clients/`).then(res => res.json()) 
+      fetch(`${API_BASE}/api/clients/`).then(res => res.json()),
+      fetch(`${API_BASE}/api/label-templates/`).then(res => res.json()) // <--- Appel API Templates
     ])
-    .then(([productsData, categoriesData, clientsData]) => {
+    .then(([productsData, categoriesData, clientsData, templatesData]) => {
       setProducts(productsData)
       setCategories(categoriesData)
-      setClients(clientsData) 
+      setClients(clientsData)
+      setTemplates(templatesData)
       setFilteredProducts(productsData)
       setLoading(false)
     })
@@ -110,13 +114,26 @@ function App() {
     const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
     const lotSimule = `MP-${today}-REEL`;
 
-    let zpl = selectedProduct?.zpl_template;
+    let zpl = null;
 
+    // 1. Priorité au modèle explicitement sélectionné dans le menu déroulant
+    if (selectedTemplateId) {
+      const chosenTpl = templates.find(t => String(t.id) === String(selectedTemplateId));
+      if (chosenTpl) zpl = chosenTpl.zpl_code;
+    }
+
+    // 2. Sinon, modèle rattaché au produit
+    if (!zpl && selectedProduct?.zpl_template) {
+      zpl = selectedProduct.zpl_template;
+    }
+
+    // 3. Sinon, modèle de catégorie ou fallback
     if (!zpl) {
       const templateBobine = categories.flatMap(c => c.default_template).find(t => t?.name?.toLowerCase().includes('bobine'));
       zpl = templateBobine ? templateBobine.zpl_code : null;
     }
 
+    // 4. Fallback de sécurité brut si aucun template n'est trouvé dans la BDD
     if (!zpl) {
       zpl = `^XA^CI28^PW800^LL600^FO40,30^A0N,28,28^FDMAR PLASTIC - FABRICATION DIRECTE^FS^FO40,65^A0N,20,20^FDICE: 001847540000028  NM: 11.4.050^FS^FO20,95^GB760,3,3^FS^FO40,115^A0N,22,22^FDCLIENT:^FS^FO150,110^A0N,35,35^FD{CLIENT_NAME}^FS^FO40,160^A0N,22,22^FDLAIZE:^FS^FO130,150^A0N,40,40^FD{LAIZE} cm^FS^FO450,160^A0N,22,22^FDEPAISS:^FS^FO550,150^A0N,40,40^FD{MICRON} \x85m^FS^FO40,215^A0N,22,22^FDARTICLE:^FS^FO150,210^A0N,30,30^FB600,2,,L^FD{NAME}^FS^FO40,270^A0N,25,25^FDQUANTITE:^FS^FO200,255^A0N,75,75^FD{VALUE} {UNIT}^FS^FO120,380^BY3^BCN,120,Y,N,N^FD{LOT}^FS^XZ`;
     }
@@ -154,8 +171,9 @@ function App() {
 
     const finalColisCount = selectedProduct ? colisCount : 1;
 
-    // Payload générique : l'identification se fait côté serveur via l'IP
+    // Payload générique incluant le template_id choisi
     const payload = {
+      template_id: selectedTemplateId || null, // <--- Envoi de l'ID du modèle au backend
       is_free_input: !selectedProduct,
       product_id: selectedProduct ? selectedProduct.id : null,
       custom_name: designationVolante,
@@ -183,6 +201,7 @@ function App() {
         setIsFreeInputMode(false);
         setSelectedClient(null); 
         setClientSearchTerm('');
+        setSelectedTemplateId('');
         setColisCount(1);
         setLabelsPerColis(1);
       } else {
@@ -273,7 +292,7 @@ function App() {
           <div className="print-card-studio">
             <button 
               className="back-btn" 
-              onClick={() => { setSelectedProduct(null); setIsFreeInputMode(false); setSelectedClient(null); setClientSearchTerm(''); }}
+              onClick={() => { setSelectedProduct(null); setIsFreeInputMode(false); setSelectedClient(null); setClientSearchTerm(''); setSelectedTemplateId(''); }}
             >
               ⬅ Retour au Catalogue
             </button>
@@ -334,6 +353,24 @@ function App() {
                     </button>
                   </div>
                 )}
+              </div>
+
+              {/* SÉLECTION DU MODÈLE D'ÉTIQUETTE (TEMPLATE) */}
+              <div className="form-group" style={{ background: '#fcfcfc', padding: '12px', borderRadius: '8px', border: '1px solid #eaeaea' }}>
+                <label style={{ fontWeight: 'bold', color: '#2c3e50', display: 'block', marginBottom: '6px' }}>📋 Modèle d'étiquette ZPL :</label>
+                <select 
+                  className="form-input"
+                  value={selectedTemplateId} 
+                  onChange={(e) => setSelectedTemplateId(e.target.value)}
+                  style={{ width: '100%', borderRadius: '6px', fontSize: '14px', height: '38px', background: '#fff' }}
+                >
+                  <option value="">-- Automatique (Par défaut produit/catégorie) --</option>
+                  {templates.map(tpl => (
+                    <option key={tpl.id} value={tpl.id}>
+                      {tpl.name}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               {/* BOUTONS RADIO MATIÈRE (PP / PE) EN SAISIE VOLANTE */}

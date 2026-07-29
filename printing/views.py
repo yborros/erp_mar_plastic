@@ -142,6 +142,17 @@ class PrintLabelAPIView(APIView):
         # -----------------------------------------------------------------
         # 2. RÉCUPÉRATION DU PRODUIT ET DU TEMPLATE ZPL
         # -----------------------------------------------------------------
+        template_id = request.data.get('template_id')  # <--- ID du modèle sélectionné dans le menu déroulant
+        zpl_template = None
+
+        # A) Si un modèle spécifique est sélectionné dans le menu déroulant
+        if template_id:
+            try:
+                template_selected = LabelTemplate.objects.get(id=template_id)
+                zpl_template = template_selected.zpl_code
+            except LabelTemplate.DoesNotExist:
+                pass
+
         product_obj = None
         if product_id:
             try:
@@ -150,28 +161,33 @@ class PrintLabelAPIView(APIView):
                 sku_display = product_obj.sku
                 unit_str = product_obj.unit.abbreviation if product_obj.unit else "U"
 
-                if product_obj.custom_template:
-                    zpl_template = product_obj.custom_template.zpl_code
-                elif product_obj.category and product_obj.category.default_template:
-                    zpl_template = product_obj.category.default_template.zpl_code
-                else:
-                    template_fallback = LabelTemplate.objects.first()
-                    zpl_template = template_fallback.zpl_code if template_fallback else ""
+                # Si aucun modèle explicite n'a été choisi dans le menu déroulant, on utilise le template du produit/catégorie
+                if not zpl_template:
+                    if product_obj.custom_template:
+                        zpl_template = product_obj.custom_template.zpl_code
+                    elif product_obj.category and product_obj.category.default_template:
+                        zpl_template = product_obj.category.default_template.zpl_code
+                    else:
+                        template_fallback = LabelTemplate.objects.first()
+                        zpl_template = template_fallback.zpl_code if template_fallback else ""
             except Product.DoesNotExist:
                 return Response({"error": "Produit introuvable dans la base de données"}, status=status.HTTP_404_NOT_FOUND)
         else:
             product_name = custom_name
             sku_display = f"BOB-{laize}-{micron}MIC" if laize and micron else "FAB-DIRECTE"
             
-            template_bobine = LabelTemplate.objects.filter(name__icontains="Bobine").first()
-            if not template_bobine:
-                template_bobine = LabelTemplate.objects.first()
-            
-            if template_bobine:
-                zpl_template = template_bobine.zpl_code
-            else:
-                return Response({"error": "Aucun modèle d'étiquette ZPL n'est configuré dans l'admin."}, status=status.HTTP_400_BAD_REQUEST)
+            # Si aucun modèle explicite n'a été choisi dans le menu déroulant, on cherche un modèle "Bobine"
+            if not zpl_template:
+                template_bobine = LabelTemplate.objects.filter(name__icontains="Bobine").first()
+                if not template_bobine:
+                    template_bobine = LabelTemplate.objects.first()
+                
+                if template_bobine:
+                    zpl_template = template_bobine.zpl_code
 
+        if not zpl_template:
+            return Response({"error": "Aucun modèle d'étiquette ZPL valide n'a pu être chargé."}, status=status.HTTP_400_BAD_REQUEST)
+        
         # -----------------------------------------------------------------
         # 3. CONSTRUCTION DE LA CHAÎNE ZPL
         # -----------------------------------------------------------------
