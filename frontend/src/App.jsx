@@ -5,7 +5,7 @@ function App() {
   const [products, setProducts] = useState([])
   const [categories, setCategories] = useState([])
   const [clients, setClients] = useState([]) 
-  const [templates, setTemplates] = useState([]) // <--- Liste des modèles ZPL
+  const [templates, setTemplates] = useState([])
   const [filteredProducts, setFilteredProducts] = useState([])
   
   // --- SYSTÈME DE FAVORIS ---
@@ -19,19 +19,27 @@ function App() {
   const [activeCategory, setActiveCategory] = useState('Tous')
   const [loading, setLoading] = useState(true)
 
-  // Mode Saisie Volante sans sélection de produit
+  // Mode Saisie Volante / Studio
   const [isFreeInputMode, setIsFreeInputMode] = useState(false)
 
   // États pour la sélection du Studio
   const [selectedProduct, setSelectedProduct] = useState(null)
   const [selectedClient, setSelectedClient] = useState(null) 
   const [clientSearchTerm, setClientSearchTerm] = useState('') 
-  const [selectedTemplateId, setSelectedTemplateId] = useState('') // <--- Template sélectionné
+  const [selectedTemplateId, setSelectedTemplateId] = useState('')
 
-  // Choix rapide de matière pour Saisie Volante (PP / PE)
+  // --- CHAMPS SPÉCIAUX POUR ÉTIQUETTE CARTON / EXPÉDITION ---
+  const [cartonTitre, setCartonTitre] = useState('MOUCHOIRS – Collection Marbre Noir')
+  const [cartonType, setCartonType] = useState('2 Plis 70 mouchoirs Ultra Doux')
+  const [cartonQty, setCartonQty] = useState('6 Packs x 4 units')
+  const [cartonDest, setCartonDest] = useState('SUISSE')
+  const [cartonPoidsNet, setCartonPoidsNet] = useState('3.900kg')
+  const [cartonPoidsBrut, setCartonPoidsBrut] = useState('3.250kg')
+
+  // Choix rapide de matière pour Saisie Volante Bobine (PP / PE)
   const [selectedMatiere, setSelectedMatiere] = useState('PE')
 
-  // Champs de saisie (Volante + Réglages Bobine en CM et µm)
+  // Champs de saisie standard Bobine
   const [laize, setLaize] = useState('50')
   const [micron, setMicron] = useState('50')
   const [weight, setWeight] = useState('180')
@@ -42,7 +50,6 @@ function App() {
   const [colisCount, setColisCount] = useState(1)       
   const [labelsPerColis, setLabelsPerColis] = useState(1) 
 
-  // Libellé calculé pour la saisie volante (ex: GAINE PE)
   const designationVolante = `GAINE ${selectedMatiere}`;
 
   // Chargement des données Django depuis l'API
@@ -53,7 +60,7 @@ function App() {
       fetch(`${API_BASE}/api/products/`).then(res => res.json()),
       fetch(`${API_BASE}/api/categories/`).then(res => res.json()),
       fetch(`${API_BASE}/api/clients/`).then(res => res.json()),
-      fetch(`${API_BASE}/api/label-templates/`).then(res => res.json()) // <--- Appel API Templates
+      fetch(`${API_BASE}/api/label-templates/`).then(res => res.json())
     ])
     .then(([productsData, categoriesData, clientsData, templatesData]) => {
       setProducts(productsData)
@@ -66,12 +73,10 @@ function App() {
     .catch(error => console.error("Erreur API :", error))
   }, [])
 
-  // Sauvegarde automatique des favoris localement
   useEffect(() => {
     localStorage.setItem('mar_plastic_favs', JSON.stringify(favorites));
   }, [favorites]);
 
-  // Filtrage du Catalogue (Favoris en premier)
   useEffect(() => {
     const results = products.filter(product => {
       const matchesSearch = product.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -109,31 +114,34 @@ function App() {
       .sort((a, b) => a.nom.localeCompare(b.nom));
   }
 
+  // Détection si le modèle choisi est l'étiquette Carton / Expédition
+  const chosenTemplateObj = templates.find(t => String(t.id) === String(selectedTemplateId));
+  const isCartonTemplate = chosenTemplateObj && (
+    chosenTemplateObj.name.toLowerCase().includes('carton') || 
+    chosenTemplateObj.name.toLowerCase().includes('expedition') ||
+    chosenTemplateObj.name.toLowerCase().includes('mouchoir')
+  );
+
   // Génération dynamique de l'aperçu ZPL (Labelary)
   const getZPLTemplate = () => {
     const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-    const lotSimule = `MP-${today}-REEL`;
+    const lotSimule = `SO-${today.slice(2)}-0231`;
 
     let zpl = null;
 
-    // 1. Priorité au modèle explicitement sélectionné dans le menu déroulant
-    if (selectedTemplateId) {
-      const chosenTpl = templates.find(t => String(t.id) === String(selectedTemplateId));
-      if (chosenTpl) zpl = chosenTpl.zpl_code;
+    if (selectedTemplateId && chosenTemplateObj) {
+      zpl = chosenTemplateObj.zpl_code;
     }
 
-    // 2. Sinon, modèle rattaché au produit
     if (!zpl && selectedProduct?.zpl_template) {
       zpl = selectedProduct.zpl_template;
     }
 
-    // 3. Sinon, modèle de catégorie ou fallback
     if (!zpl) {
       const templateBobine = categories.flatMap(c => c.default_template).find(t => t?.name?.toLowerCase().includes('bobine'));
       zpl = templateBobine ? templateBobine.zpl_code : null;
     }
 
-    // 4. Fallback de sécurité brut si aucun template n'est trouvé dans la BDD
     if (!zpl) {
       zpl = `^XA^CI28^PW800^LL600^FO40,30^A0N,28,28^FDMAR PLASTIC - FABRICATION DIRECTE^FS^FO40,65^A0N,20,20^FDICE: 001847540000028  NM: 11.4.050^FS^FO20,95^GB760,3,3^FS^FO40,115^A0N,22,22^FDCLIENT:^FS^FO150,110^A0N,35,35^FD{CLIENT_NAME}^FS^FO40,160^A0N,22,22^FDLAIZE:^FS^FO130,150^A0N,40,40^FD{LAIZE} cm^FS^FO450,160^A0N,22,22^FDEPAISS:^FS^FO550,150^A0N,40,40^FD{MICRON} \x85m^FS^FO40,215^A0N,22,22^FDARTICLE:^FS^FO150,210^A0N,30,30^FB600,2,,L^FD{NAME}^FS^FO40,270^A0N,25,25^FDQUANTITE:^FS^FO200,255^A0N,75,75^FD{VALUE} {UNIT}^FS^FO120,380^BY3^BCN,120,Y,N,N^FD{LOT}^FS^XZ`;
     }
@@ -141,7 +149,14 @@ function App() {
     const estPoids = selectedProduct ? (selectedProduct.unit_symbol?.toLowerCase() === 'kg') : (uniteVolante.toLowerCase() === 'kg');
     const currentInputValue = estPoids ? weight : packCount;
 
-    zpl = zpl.replace(/{NAME}/g, selectedProduct ? selectedProduct.name : designationVolante);
+    // Remplacements génériques + spécifiques Carton
+    zpl = zpl.replace(/{NAME}/g, isCartonTemplate ? cartonTitre : (selectedProduct ? selectedProduct.name : designationVolante));
+    zpl = zpl.replace(/{TYPE_DETAILS}/g, cartonType);
+    zpl = zpl.replace(/{QTY_DETAILS}/g, cartonQty);
+    zpl = zpl.replace(/{DESTINATION}/g, selectedClient ? selectedClient.nom : cartonDest);
+    zpl = zpl.replace(/{POIDS_NET}/g, cartonPoidsNet);
+    zpl = zpl.replace(/{POIDS_BRUT}/g, cartonPoidsBrut);
+
     zpl = zpl.replace(/{SKU}/g, selectedProduct ? selectedProduct.sku : `BOB-${selectedMatiere}-${laize}CM-${micron}MIC`);
     zpl = zpl.replace(/{LOT}/g, lotSimule);
     zpl = zpl.replace(/{VALUE}/g, currentInputValue);
@@ -149,7 +164,6 @@ function App() {
     zpl = zpl.replace(/{LAIZE}/g, laize);
     zpl = zpl.replace(/{MICRON}/g, micron);
     zpl = zpl.replace(/{CLIENT_NAME}/g, selectedClient ? selectedClient.nom : '');
-    zpl = zpl.replace(/{CLIENT_NUM}/g, selectedClient ? selectedClient.numero_client : '');
 
     if (labelsPerColis > 1) {
       zpl = zpl.replace('^XZ', `^PQ${labelsPerColis}^XZ`);
@@ -171,12 +185,20 @@ function App() {
 
     const finalColisCount = selectedProduct ? colisCount : 1;
 
-    // Payload générique incluant le template_id choisi
     const payload = {
-      template_id: selectedTemplateId || null, // <--- Envoi de l'ID du modèle au backend
+      template_id: selectedTemplateId || null,
       is_free_input: !selectedProduct,
       product_id: selectedProduct ? selectedProduct.id : null,
-      custom_name: designationVolante,
+      custom_name: isCartonTemplate ? cartonTitre : designationVolante,
+      
+      // Champs spécifiques Carton Expédition
+      type_details: cartonType,
+      qty_details: cartonQty,
+      destination: selectedClient ? selectedClient.nom : cartonDest,
+      poids_net: cartonPoidsNet,
+      poids_brut: cartonPoidsBrut,
+
+      // Champs Standard
       matiere: selectedMatiere,
       laize: laize,
       micron: micron,
@@ -301,12 +323,30 @@ function App() {
               <span className="print-badge" style={{ background: selectedProduct ? '#2980b9' : '#27ae60' }}>
                 {selectedProduct ? selectedProduct.category_name : 'SAISIE VOLANTE / EXTRUSION'}
               </span>
-              <h3>{selectedProduct ? selectedProduct.name : designationVolante}</h3>
+              <h3>{isCartonTemplate ? cartonTitre : (selectedProduct ? selectedProduct.name : designationVolante)}</h3>
               {selectedProduct && <p><strong>Réf SKU :</strong> {selectedProduct.sku}</p>}
             </div>
 
             <form onSubmit={handlePrintTest} className="print-form">
               
+              {/* SÉLECTION DU MODÈLE D'ÉTIQUETTE (TEMPLATE) */}
+              <div className="form-group" style={{ background: '#f0f3f6', padding: '12px', borderRadius: '8px', border: '2px solid #3498db' }}>
+                <label style={{ fontWeight: 'bold', color: '#2c3e50', display: 'block', marginBottom: '6px' }}>📋 Choix du Modèle d'ÉTIQUETTE :</label>
+                <select 
+                  className="form-input"
+                  value={selectedTemplateId} 
+                  onChange={(e) => setSelectedTemplateId(e.target.value)}
+                  style={{ width: '100%', borderRadius: '6px', fontSize: '15px', height: '40px', background: '#fff', fontWeight: 'bold' }}
+                >
+                  <option value="">-- Automatique (Par défaut produit/catégorie) --</option>
+                  {templates.map(tpl => (
+                    <option key={tpl.id} value={tpl.id}>
+                      {tpl.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               {/* SÉLECTION CLIENT */}
               <div className="form-group" style={{ background: '#fcfcfc', padding: '12px', borderRadius: '8px', border: '1px solid #eaeaea' }}>
                 <label style={{ fontWeight: 'bold', color: '#2c3e50', display: 'block', marginBottom: '6px' }}>Destinataire / Client :</label>
@@ -355,161 +395,194 @@ function App() {
                 )}
               </div>
 
-              {/* SÉLECTION DU MODÈLE D'ÉTIQUETTE (TEMPLATE) */}
-              <div className="form-group" style={{ background: '#fcfcfc', padding: '12px', borderRadius: '8px', border: '1px solid #eaeaea' }}>
-                <label style={{ fontWeight: 'bold', color: '#2c3e50', display: 'block', marginBottom: '6px' }}>📋 Modèle d'étiquette ZPL :</label>
-                <select 
-                  className="form-input"
-                  value={selectedTemplateId} 
-                  onChange={(e) => setSelectedTemplateId(e.target.value)}
-                  style={{ width: '100%', borderRadius: '6px', fontSize: '14px', height: '38px', background: '#fff' }}
-                >
-                  <option value="">-- Automatique (Par défaut produit/catégorie) --</option>
-                  {templates.map(tpl => (
-                    <option key={tpl.id} value={tpl.id}>
-                      {tpl.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* BOUTONS RADIO MATIÈRE (PP / PE) EN SAISIE VOLANTE */}
-              {!selectedProduct && (
-                <div className="form-group">
-                  <label style={{ fontWeight: 'bold', display: 'block', marginBottom: '8px' }}>Matière :</label>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                    
-                    <button
-                      type="button"
-                      onClick={() => setSelectedMatiere('PE')}
-                      style={{
-                        padding: '12px',
-                        borderRadius: '6px',
-                        border: selectedMatiere === 'PE' ? '2px solid #27ae60' : '1px solid #ccc',
-                        background: selectedMatiere === 'PE' ? '#e8f8f5' : '#f8f9fa',
-                        color: selectedMatiere === 'PE' ? '#27ae60' : '#2c3e50',
-                        fontWeight: 'bold',
-                        fontSize: '16px',
-                        cursor: 'pointer'
-                      }}
-                    >
-                      PE (Polyéthylène)
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setSelectedMatiere('PP')}
-                      style={{
-                        padding: '12px',
-                        borderRadius: '6px',
-                        border: selectedMatiere === 'PP' ? '2px solid #2980b9' : '1px solid #ccc',
-                        background: selectedMatiere === 'PP' ? '#ebf5fb' : '#f8f9fa',
-                        color: selectedMatiere === 'PP' ? '#2980b9' : '#2c3e50',
-                        fontWeight: 'bold',
-                        fontSize: '16px',
-                        cursor: 'pointer'
-                      }}
-                    >
-                      PP (Polypropylène)
-                    </button>
-
-                  </div>
-                </div>
-              )}
-
-              {/* RÉGLAGES EXTRUSION : LAIZE EN CM ET ÉPAISSEUR EN µm (SAISIE VOLANTE UNIQUEMENT) */}
-              {!selectedProduct && (
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
-                  <div className="form-group">
-                    <label>Laize (cm) :</label>
+              {/* --- FORMULAIRE SPÉCIAL ÉTIQUETTE CARTON EXPÉDITION --- */}
+              {isCartonTemplate ? (
+                <div style={{ background: '#eef9f1', padding: '15px', borderRadius: '8px', border: '1px solid #27ae60', marginBottom: '15px' }}>
+                  <h4 style={{ margin: '0 0 10px 0', color: '#27ae60' }}>📦 Champs de l'étiquette Carton :</h4>
+                  
+                  <div className="form-group" style={{ marginBottom: '10px' }}>
+                    <label>Titre de l'article :</label>
                     <input 
-                      type="number" 
-                      value={laize} 
-                      onChange={(e) => setLaize(e.target.value)} 
+                      type="text" 
+                      value={cartonTitre} 
+                      onChange={(e) => setCartonTitre(e.target.value)} 
                       className="form-input" 
                       style={{ width: '100%', borderRadius: '6px' }}
-                      placeholder="ex: 50"
                     />
                   </div>
 
-                  <div className="form-group">
-                    <label>Épaisseur (µm / µ) :</label>
+                  <div className="form-group" style={{ marginBottom: '10px' }}>
+                    <label>Description / Type (ex: 2 Plis 70 mouchoirs) :</label>
                     <input 
-                      type="number" 
-                      value={micron} 
-                      onChange={(e) => setMicron(e.target.value)} 
+                      type="text" 
+                      value={cartonType} 
+                      onChange={(e) => setCartonType(e.target.value)} 
                       className="form-input" 
                       style={{ width: '100%', borderRadius: '6px' }}
-                      placeholder="ex: 50"
                     />
                   </div>
-                </div>
-              )}
 
-              {/* QUANTITÉ / POIDS DE LA BOBINE */}
-              {estProduitAuPoids ? (
-                <div className="form-group">
-                  <label>Poids de la bobine :</label>
-                  <div className="input-with-addon">
-                    <input type="number" step="0.01" value={weight} onChange={(e) => setWeight(e.target.value)} className="form-input" required />
-                    
-                    {!selectedProduct ? (
-                      <select 
-                        value={uniteVolante} 
-                        onChange={(e) => setUniteVolante(e.target.value)}
-                        style={{ background: '#dcdde1', border: '2px solid #ccc', borderLeft: 'none', padding: '0 10px', fontWeight: 'bold' }}
-                      >
-                        <option value="Kg">Kg</option>
-                        <option value="U">U</option>
-                      </select>
-                    ) : (
-                      <span className="input-addon">{selectedProduct.unit_symbol || 'Kg'}</span>
-                    )}
+                  <div className="form-group" style={{ marginBottom: '10px' }}>
+                    <label>Contenance / Qty (ex: 6 Packs x 4 units) :</label>
+                    <input 
+                      type="text" 
+                      value={cartonQty} 
+                      onChange={(e) => setCartonQty(e.target.value)} 
+                      className="form-input" 
+                      style={{ width: '100%', borderRadius: '6px' }}
+                    />
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
+                    <div className="form-group">
+                      <label>Destination :</label>
+                      <input 
+                        type="text" 
+                        value={selectedClient ? selectedClient.nom : cartonDest} 
+                        onChange={(e) => setCartonDest(e.target.value)} 
+                        className="form-input" 
+                        style={{ width: '100%', borderRadius: '6px' }}
+                        disabled={!!selectedClient}
+                      />
+                    </div>
+
+                    <div className="form-group">
+                      <label>Poids Net :</label>
+                      <input 
+                        type="text" 
+                        value={cartonPoidsNet} 
+                        onChange={(e) => setCartonPoidsNet(e.target.value)} 
+                        className="form-input" 
+                        style={{ width: '100%', borderRadius: '6px' }}
+                      />
+                    </div>
+
+                    <div className="form-group">
+                      <label>Poids Brut :</label>
+                      <input 
+                        type="text" 
+                        value={cartonPoidsBrut} 
+                        onChange={(e) => setCartonPoidsBrut(e.target.value)} 
+                        className="form-input" 
+                        style={{ width: '100%', borderRadius: '6px' }}
+                      />
+                    </div>
                   </div>
                 </div>
               ) : (
-                <div className="form-group">
-                  <label>Unités par carton :</label>
-                  <div className="input-with-addon">
-                    <input type="number" value={packCount} onChange={(e) => setPackCount(e.target.value)} className="form-input" required />
-                    <span className="input-addon">{selectedProduct?.unit_symbol || 'U'}</span>
-                  </div>
-                </div>
+                /* --- FORMULAIRE STANDARD BOBINE / EXTRUSION --- */
+                <>
+                  {!selectedProduct && (
+                    <div className="form-group">
+                      <label style={{ fontWeight: 'bold', display: 'block', marginBottom: '8px' }}>Matière :</label>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedMatiere('PE')}
+                          style={{
+                            padding: '12px',
+                            borderRadius: '6px',
+                            border: selectedMatiere === 'PE' ? '2px solid #27ae60' : '1px solid #ccc',
+                            background: selectedMatiere === 'PE' ? '#e8f8f5' : '#f8f9fa',
+                            color: selectedMatiere === 'PE' ? '#27ae60' : '#2c3e50',
+                            fontWeight: 'bold',
+                            fontSize: '16px',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          PE (Polyéthylène)
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setSelectedMatiere('PP')}
+                          style={{
+                            padding: '12px',
+                            borderRadius: '6px',
+                            border: selectedMatiere === 'PP' ? '2px solid #2980b9' : '1px solid #ccc',
+                            background: selectedMatiere === 'PP' ? '#ebf5fb' : '#f8f9fa',
+                            color: selectedMatiere === 'PP' ? '#2980b9' : '#2c3e50',
+                            fontWeight: 'bold',
+                            fontSize: '16px',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          PP (Polypropylène)
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {!selectedProduct && (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+                      <div className="form-group">
+                        <label>Laize (cm) :</label>
+                        <input 
+                          type="number" 
+                          value={laize} 
+                          onChange={(e) => setLaize(e.target.value)} 
+                          className="form-input" 
+                          style={{ width: '100%', borderRadius: '6px' }}
+                          placeholder="ex: 50"
+                        />
+                      </div>
+
+                      <div className="form-group">
+                        <label>Épaisseur (µm / µ) :</label>
+                        <input 
+                          type="number" 
+                          value={micron} 
+                          onChange={(e) => setMicron(e.target.value)} 
+                          className="form-input" 
+                          style={{ width: '100%', borderRadius: '6px' }}
+                          placeholder="ex: 50"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {estProduitAuPoids ? (
+                    <div className="form-group">
+                      <label>Poids de la bobine :</label>
+                      <div className="input-with-addon">
+                        <input type="number" step="0.01" value={weight} onChange={(e) => setWeight(e.target.value)} className="form-input" required />
+                        {!selectedProduct ? (
+                          <select 
+                            value={uniteVolante} 
+                            onChange={(e) => setUniteVolante(e.target.value)}
+                            style={{ background: '#dcdde1', border: '2px solid #ccc', borderLeft: 'none', padding: '0 10px', fontWeight: 'bold' }}
+                          >
+                            <option value="Kg">Kg</option>
+                            <option value="U">U</option>
+                          </select>
+                        ) : (
+                          <span className="input-addon">{selectedProduct.unit_symbol || 'Kg'}</span>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="form-group">
+                      <label>Unités par carton :</label>
+                      <div className="input-with-addon">
+                        <input type="number" value={packCount} onChange={(e) => setPackCount(e.target.value)} className="form-input" required />
+                        <span className="input-addon">{selectedProduct?.unit_symbol || 'U'}</span>
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
 
               {/* GESTION DU NOMBRE D'ÉTIQUETTES / COLIS */}
-              {selectedProduct ? (
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
-                  <div className="form-group">
-                    <label>Nbr de cartons / colis :</label>
-                    <div className="quantity-selector">
-                      <button type="button" onClick={() => setColisCount(Math.max(1, colisCount - 1))} className="qty-btn">-</button>
-                      <input type="number" value={colisCount} className="qty-input" readOnly />
-                      <button type="button" onClick={() => setColisCount(colisCount + 1)} className="qty-btn">+</button>
-                    </div>
-                  </div>
-
-                  <div className="form-group">
-                    <label>Étiquettes par colis :</label>
-                    <div className="quantity-selector">
-                      <button type="button" onClick={() => setLabelsPerColis(Math.max(1, labelsPerColis - 1))} className="qty-btn">-</button>
-                      <input type="number" value={labelsPerColis} className="qty-input" readOnly />
-                      <button type="button" onClick={() => setLabelsPerColis(labelsPerColis + 1)} className="qty-btn">+</button>
-                    </div>
-                  </div>
+              <div className="form-group">
+                <label>Nombre d'étiquettes à imprimer :</label>
+                <div className="quantity-selector" style={{ maxWidth: '200px' }}>
+                  <button type="button" onClick={() => setLabelsPerColis(Math.max(1, labelsPerColis - 1))} className="qty-btn">-</button>
+                  <input type="number" value={labelsPerColis} className="qty-input" readOnly />
+                  <button type="button" onClick={() => setLabelsPerColis(labelsPerColis + 1)} className="qty-btn">+</button>
                 </div>
-              ) : (
-                <div className="form-group">
-                  <label>Nombre d'étiquettes pour cette bobine (Faces / Doublons) :</label>
-                  <div className="quantity-selector" style={{ maxWidth: '200px' }}>
-                    <button type="button" onClick={() => setLabelsPerColis(Math.max(1, labelsPerColis - 1))} className="qty-btn">-</button>
-                    <input type="number" value={labelsPerColis} className="qty-input" readOnly />
-                    <button type="button" onClick={() => setLabelsPerColis(labelsPerColis + 1)} className="qty-btn">+</button>
-                  </div>
-                </div>
-              )}
+              </div>
 
-              <button type="submit" className="submit-print-btn" style={{ background: selectedProduct ? '#2980b9' : '#27ae60' }}>
+              <button type="submit" className="submit-print-btn" style={{ background: isCartonTemplate ? '#27ae60' : '#2980b9' }}>
                 🖨️ IMPRIMER L'ÉTIQUETTE
               </button>
             </form>
@@ -526,9 +599,12 @@ function App() {
               )}
             </div>
             <p className="preview-footnote">
-              {selectedProduct 
-                ? `Produit Catalogue : [${selectedProduct.sku}] ${selectedProduct.name}`
-                : `Mode Saisie Volante : GAINE ${selectedMatiere} (Bobine unique)`
+              {isCartonTemplate 
+                ? `Mode Étiquette Carton Expédition : ${cartonTitre}`
+                : (selectedProduct 
+                    ? `Produit Catalogue : [${selectedProduct.sku}] ${selectedProduct.name}`
+                    : `Mode Saisie Volante : GAINE ${selectedMatiere}`
+                  )
               }
             </p>
           </div>
