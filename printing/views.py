@@ -1,4 +1,5 @@
 import os
+import re
 import socket
 import datetime
 from rest_framework.views import APIView
@@ -11,11 +12,9 @@ from .models import (
     Category, LabelTemplate, Product, ConfigurationImprimante, 
     Client, ImpressionEtiquette
 )
-from .serializers import (
-    CategorySerializer, LabelTemplateSerializer, ProductSerializer, 
-    ConfigurationImprimanteSerializer
-)
+from .serializers import CategorySerializer, LabelTemplateSerializer, ProductSerializer
 
+# Chargement du fichier .env au démarrage du serveur
 load_dotenv()
 
 # =================================================================
@@ -23,14 +22,20 @@ load_dotenv()
 # =================================================================
 
 def get_client_ip(request):
+    """
+    Extrait l'adresse IP réelle du poste ayant émis la requête.
+    Prend en compte les reverse proxies (ex: Nginx) via HTTP_X_FORWARDED_FOR.
+    """
     x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
     if x_forwarded_for:
-        return x_forwarded_for.split(',')[0].strip()
-    return request.META.get('REMOTE_ADDR')
+        ip = x_forwarded_for.split(',')[0].strip()
+    else:
+        ip = request.META.get('REMOTE_ADDR')
+    return ip
 
 
 # =================================================================
-# 1. VIEWSETS POUR L'API REST
+# 1. VIEWSETS POUR L'API REST (LECTURE DES DONNÉES & HISTORIQUE)
 # =================================================================
 
 class CategoryViewSet(viewsets.ReadOnlyModelViewSet):
@@ -54,18 +59,16 @@ class ClientViewSet(viewsets.ModelViewSet):
     queryset = Client.objects.all().order_by('nom')
     serializer_class = ClientSerializer
 
+
+# Serializer et ViewSet pour l'historique des impressions
 class ImpressionEtiquetteSerializer(ModelSerializer):
     class Meta:
         model = ImpressionEtiquette
         fields = '__all__'
 
 class ImpressionEtiquetteViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = ImpressionEtiquette.objects.all().order_by('-date_impression')
+    queryset = ImpressionEtiquette.objects.all()
     serializer_class = ImpressionEtiquetteSerializer
-
-class ConfigurationImprimanteViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = ConfigurationImprimante.objects.filter(mode_connexion='RESEAU')
-    serializer_class = ConfigurationImprimanteSerializer
 
 
 # =================================================================
@@ -79,7 +82,7 @@ except ImportError:
 
 
 # =================================================================
-# 3. API D'IMPRESSION (INCRÉMENTATION UNITAIRE & ROUTAGE SÉCURISÉ)
+# 3. API D'IMPRESSION DES ÉTIQUETTES (DÉTECTION IP & TRAÇABILITÉ)
 # =================================================================
 
 class PrintLabelAPIView(APIView):
@@ -91,61 +94,61 @@ class PrintLabelAPIView(APIView):
         client_num = request.data.get('client_num', '')
         value = request.data.get('value', '')
         
-        # Données de saisie directe (Bobine / Extrusion)
+        # Données de la saisie volante (Bobine / Extrusion)
         custom_name = request.data.get('custom_name', 'GAINE PEBD NEUTRE')
         laize = request.data.get('laize', '')
         micron = request.data.get('micron', '')
         unit_str = request.data.get('unit_str', 'Kg')
 
-        # Données spécifiques étiquette Carton / Expédition
+        # Données spécifiques à l'étiquette Carton / Expédition
         type_details = request.data.get('type_details', '')
         qty_details = request.data.get('qty_details', '')
         destination = request.data.get('destination', '')
         poids_net = request.data.get('poids_net', '')
         poids_brut = request.data.get('poids_brut', '')
 
-        # Calcul du nombre total d'étiquettes à générer
-        colis_count_in = int(request.data.get('colis_count', 1))
-        labels_per_colis_in = int(request.data.get('labels_per_colis', 1))
-        total_etiquettes = max(1, colis_count_in * labels_per_colis_in)
-
+        colis_count = int(request.data.get('colis_count', 1))
+        labels_per_colis = int(request.data.get('labels_per_colis', 1))
+        
         # -----------------------------------------------------------------
-        # A. IDENTIFICATION DE L'IMPRIMANTE CIBLE
+        # 1. IDENTIFICATION DU POSTE PAR IP OU VIA CODE EN SECOURS
         # -----------------------------------------------------------------
         client_ip = get_client_ip(request)
-        printer_id = request.data.get('printer_id')
-        station_code = request.data.get('station_code')
+        code_du_poste = request.data.get('code_poste')
 
         config = None
 
-        if printer_id:
-            config = ConfigurationImprimante.objects.filter(id=printer_id).first()
+        # A) Recherche explicite si un code_poste est fourni dans le payload
+        if code_du_poste:
+            config = ConfigurationImprimante.objects.filter(code_poste=code_du_poste).first()
 
-        if not config and station_code:
-            config = ConfigurationImprimante.objects.filter(code_poste=station_code).first()
-
+        # B) Détection dynamique par adresse IP en BDD
         if not config:
             config = ConfigurationImprimante.objects.filter(adresse_ip=client_ip).first()
 
+        # C) Cas particulier : Serveur local (127.0.0.1 / localhost) -> fallback sur .env local
         if not config and client_ip in ['127.0.0.1', '::1', 'localhost']:
             env_code = os.environ.get('IDENTIFIANT_POSTE', 'PC_BUREAU')
             config = ConfigurationImprimante.objects.filter(code_poste=env_code).first()
 
+        # D) REPLI AUTOMATIQUE RÉSEAU : Si l'IP client n'est pas reconnue,
+        #    on sélectionne la première imprimante configurée en mode RÉSEAU
         if not config:
             config = ConfigurationImprimante.objects.filter(mode_connexion='RESEAU').first()
 
+        # E) Repli d'urgence si AUCUNE configuration n'existe dans la base
         if not config:
             config = ConfigurationImprimante.objects.first()
 
         if not config:
             return Response({
-                "error": f"Aucune imprimante configurée pour le poste '{station_code or client_ip}'."
+                "error": f"Poste non reconnu pour l'IP client '{client_ip}'. Veuillez créer une configuration dans l'admin Django."
             }, status=status.HTTP_400_BAD_REQUEST)
 
-        print(f"🖨️ [Impression] Cible: {config.code_poste} ({config.adresse_ip or config.nom_systeme_windows}) - {total_etiquettes} étiquette(s)")
+        print(f"🖨️ [Impression] Reçue de l'IP {client_ip} -> Configuration utilisée: {config.code_poste} ({config.adresse_ip})")
 
         # -----------------------------------------------------------------
-        # B. RÉCUPÉRATION DU TEMPLATE ZPL
+        # 2. RÉCUPÉRATION DU PRODUIT ET DU TEMPLATE ZPL
         # -----------------------------------------------------------------
         template_id = request.data.get('template_id')
         zpl_template = None
@@ -183,114 +186,137 @@ class PrintLabelAPIView(APIView):
                 template_bobine = LabelTemplate.objects.filter(name__icontains="Bobine").first()
                 if not template_bobine:
                     template_bobine = LabelTemplate.objects.first()
+                
                 if template_bobine:
                     zpl_template = template_bobine.zpl_code
 
         if not zpl_template:
-            return Response({"error": "Aucun modèle d'étiquette ZPL valide trouvé."}, status=status.HTTP_400_BAD_REQUEST)
-
+            return Response({"error": "Aucun modèle d'étiquette ZPL valide n'a pu être chargé."}, status=status.HTTP_400_BAD_REQUEST)
+        
         # -----------------------------------------------------------------
-        # C. GÉNÉRATION UNITAIRE : UN LOT ET UNE LIGNE PAR ÉTIQUETTE
+        # 3. CONSTRUCTION DE LA CHAÎNE ZPL (MULTI-POSTES SANS COLLISION)
         # -----------------------------------------------------------------
         zpl_final_global = ""
         now = datetime.datetime.now()
-        today_str = now.strftime("%Y%m%d")
-        timestamp_commande = now.strftime("%H%M%S")
+        today_date = now.date()
+        today_str = now.strftime("%y%m%d")  # Ex: 260923
 
-        dest_val = client_name if client_name else (destination if destination else "")
-        client_obj = Client.objects.filter(nom__iexact=client_name).first() if client_name else None
+        # Extraction d'un préfixe court et lisible pour le poste (ex: PC_EXTRUSION_01 -> EXT1)
+        raw_code = config.code_poste.upper().replace("PC_", "")
+        prefixe_match = re.search(r'([A-Z]{3,4}).*?(\d+)', raw_code)
+        if prefixe_match:
+            prefixe_poste = f"{prefixe_match.group(1)[:3]}{prefixe_match.group(2)}"
+        else:
+            prefixe_poste = raw_code[:4]
 
-        records_to_create = []
+        # Définition du lot de production commun au tirage
+        lot_commun = f"{prefixe_poste}-{today_str}"
 
-        for idx in range(1, total_etiquettes + 1):
-            # Incrémentation séquentielle du numéro de lot pour chaque étiquette
-            lot_unique = f"SO-{today_str[2:]}-{timestamp_commande[-4:]}-{idx}"
+        # Compteur journalier propre à ce poste pour éviter les doublons
+        tirages_jour_poste = ImpressionEtiquette.objects.filter(
+            code_poste=config.code_poste,
+            date_impression__date=today_date
+        ).count()
+
+        dest_val = client_name if client_name else (destination if destination else "SUISSE")
+
+        for i in range(colis_count):
+            index_colis = i + 1
+            seq_globale = tirages_jour_poste + index_colis
+            
+            # Identifiant unique de chaque colis (pour code-barres et scannette)
+            code_colis_unique = f"{lot_commun}-{seq_globale:04d}"
+            colis_ratio = f"{index_colis}/{colis_count}" if colis_count > 1 else str(index_colis)
+
             texte_etiquette = zpl_template
             
-            # Remplacement des variables ZPL
+            # --- Substitutions Standard ---
             texte_etiquette = texte_etiquette.replace("{NAME}", str(product_name))
             texte_etiquette = texte_etiquette.replace("{SKU}", str(sku_display))
-            texte_etiquette = texte_etiquette.replace("{LOT}", lot_unique)
-            texte_etiquette = texte_etiquette.replace("{VALUE}", str(value) if value else "")
+            
+            # Traitement de {LOT} : si le template attend un identifiant unitaire ou batch
+            texte_etiquette = texte_etiquette.replace("{LOT}", code_colis_unique)
+            texte_etiquette = texte_etiquette.replace("{LOT_BATCH}", lot_commun)
+            texte_etiquette = texte_etiquette.replace("{COLIS}", colis_ratio)
+
+            texte_etiquette = texte_etiquette.replace("{VALUE}", str(value))
             texte_etiquette = texte_etiquette.replace("{UNIT}", str(unit_str))
-            texte_etiquette = texte_etiquette.replace("{LAIZE}", str(laize) if laize else "")
-            texte_etiquette = texte_etiquette.replace("{MICRON}", str(micron) if micron else "")
+            texte_etiquette = texte_etiquette.replace("{LAIZE}", str(laize))
+            texte_etiquette = texte_etiquette.replace("{MICRON}", str(micron))
             texte_etiquette = texte_etiquette.replace("{CLIENT_NAME}", str(client_name) if client_name else "")
             texte_etiquette = texte_etiquette.replace("{CLIENT_NUM}", str(client_num) if client_num else "")
             
-            texte_etiquette = texte_etiquette.replace("{TYPE_DETAILS}", str(type_details) if type_details else "")
-            texte_etiquette = texte_etiquette.replace("{QTY_DETAILS}", str(qty_details) if qty_details else "")
-            texte_etiquette = texte_etiquette.replace("{DESTINATION}", str(dest_val).upper() if dest_val else "")
-            texte_etiquette = texte_etiquette.replace("{POIDS_NET}", str(poids_net) if poids_net else "")
-            texte_etiquette = texte_etiquette.replace("{POIDS_BRUT}", str(poids_brut) if poids_brut else "")
+            # --- Substitutions Spécifiques Carton / Expédition ---
+            texte_etiquette = texte_etiquette.replace("{TYPE_DETAILS}", str(type_details))
+            texte_etiquette = texte_etiquette.replace("{QTY_DETAILS}", str(qty_details))
+            texte_etiquette = texte_etiquette.replace("{DESTINATION}", str(dest_val).upper())
+            texte_etiquette = texte_etiquette.replace("{POIDS_NET}", str(poids_net))
+            texte_etiquette = texte_etiquette.replace("{POIDS_BRUT}", str(poids_brut))
+            
+            if labels_per_colis > 1:
+                texte_etiquette = texte_etiquette.replace("^XZ", f"^PQ{labels_per_colis}^XZ")
             
             zpl_final_global += texte_etiquette + "\n"
 
-            # Préparation d'une ligne d'historique par étiquette unitaire
-            records_to_create.append(
-                ImpressionEtiquette(
-                    code_poste=config.code_poste,
-                    ip_client=client_ip,
-                    numero_lot=lot_unique,
-                    colis_index=idx,
-                    colis_total=total_etiquettes,
-                    produit_nom=product_name,
-                    sku=sku_display,
-                    client_nom=client_name or "",
-                    # ❌ LIGNE DESTINATION SUPPRIMÉE ICI
-                    laize=str(laize) if laize else None,
-                    micron=str(micron) if micron else None,
-                    quantite_valeur=str(value) if value else None,
-                    unite=str(unit_str),
-                    type_details=str(type_details) if type_details else None,
-                    qty_details=str(qty_details) if qty_details else None,
-                    poids_net=str(poids_net) if poids_net else None,
-                    poids_brut=str(poids_brut) if poids_brut else None,
-                    labels_per_colis=1,
-                    total_etiquettes=1,
-                    zpl_genere=texte_etiquette,
-                    product=product_obj,
-                    client=client_obj
-                )
-            )
+        # -----------------------------------------------------------------
+        # 4. ENREGISTREMENT DANS L'HISTORIQUE DE PRODUCTION (TRAÇABILITÉ)
+        # -----------------------------------------------------------------
+        total_etiquettes_imprimees = colis_count * labels_per_colis
+        client_obj = Client.objects.filter(nom__iexact=client_name).first() if client_name else None
+
+        ImpressionEtiquette.objects.create(
+            code_poste=config.code_poste,
+            ip_client=client_ip,
+            produit_nom=product_name,
+            sku=sku_display,
+            client_nom=client_name,
+            laize=str(laize) if laize else None,
+            micron=str(micron) if micron else None,
+            quantite_valeur=str(value),
+            unite=str(unit_str),
+            colis_count=colis_count,
+            labels_per_colis=labels_per_colis,
+            total_etiquettes=total_etiquettes_imprimees,
+            zpl_genere=zpl_final_global,
+            product=product_obj,
+            client=client_obj
+        )
 
         # -----------------------------------------------------------------
-        # D. ENVOI PHYSIQUE PUIS SAUVEGARDE EN BASE
+        # 5. ROUTAGE ET ENVOI À L'IMPRIMANTE
         # -----------------------------------------------------------------
 
+        # --- MODE A : DÉSACTIVÉ / TEST ---
         if config.mode_connexion == 'DESACTIVE':
-            ImpressionEtiquette.objects.bulk_create(records_to_create)
+            print(f"\n--- 📝 [MODE TEST - {config.code_poste}] Flux ZPL généré ---")
+            print(zpl_final_global)
+            print("--------------------------------------------------\n")
             return Response({
                 "status": "success",
-                "message": f"[Mode Test - {config.code_poste}] {total_etiquettes} étiquette(s) simulée(s)."
+                "message": f"[Mode Test - {config.code_poste}] {total_etiquettes_imprimees} étiquette(s) enregistrée(s) et simulée(s)."
             })
 
+        # --- MODE B : RÉSEAU (IP direct sur port 9100) ---
         elif config.mode_connexion == 'RESEAU':
             if not config.adresse_ip:
-                return Response({
-                    "error": f"Adresse IP non configurée pour le poste '{config.code_poste}'"
-                }, status=status.HTTP_400_BAD_REQUEST)
+                return Response({"error": f"Adresse IP non configurée pour le poste '{config.code_poste}' dans l'admin"}, status=status.HTTP_400_BAD_REQUEST)
             try:
                 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                s.settimeout(3.0)
-                s.connect((config.adresse_ip, config.port_reseau or 9100))
+                s.settimeout(5)
+                s.connect((config.adresse_ip, config.port_reseau))
                 s.sendall(zpl_final_global.encode('utf-8'))
                 s.close()
-
-                # Enregistrement en base UNIQUEMENT si le socket a transmis les données
-                ImpressionEtiquette.objects.bulk_create(records_to_create)
-
                 return Response({
                     "status": "success",
-                    "message": f"{total_etiquettes} étiquette(s) envoyée(s) à {config.nom_emplacement or config.code_poste} ({config.adresse_ip})."
+                    "message": f"Flux envoyé en réseau au poste {config.code_poste} ({config.adresse_ip})."
                 })
             except Exception as e:
-                # Échec de liaison : aucun historique enregistré
                 return Response({
                     "status": "error",
-                    "message": f"Imprimante hors ligne ({config.adresse_ip}:{config.port_reseau or 9100}) : {str(e)}"
+                    "message": f"Impossible de joindre l'imprimante sur le réseau ({config.adresse_ip}:{config.port_reseau}) : {str(e)}"
                 }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+        # --- MODE C : USB LOCAL (Windows Spooler) ---
         elif config.mode_connexion == 'USB':
             if not win32print:
                 return Response({
@@ -307,17 +333,15 @@ class PrintLabelAPIView(APIView):
                     win32print.EndDocPrinter(hPrinter)
                 finally:
                     win32print.ClosePrinter(hPrinter)
-
-                ImpressionEtiquette.objects.bulk_create(records_to_create)
-
+                    
                 return Response({
                     "status": "success", 
-                    "message": f"{total_etiquettes} étiquette(s) envoyée(s) à l'imprimante USB '{config.nom_systeme_windows}'."
+                    "message": f"Ordre envoyé à l'imprimante USB '{config.nom_systeme_windows}' ({config.code_poste})."
                 })
             except Exception as e:
                 return Response({
                     "status": "error", 
-                    "message": f"Erreur imprimante USB Windows ({config.nom_systeme_windows}) : {str(e)}"
+                    "message": f"Erreur avec l'imprimante USB Windows ({config.nom_systeme_windows}) : {str(e)}"
                 }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         return Response({"error": "Mode de connexion inconnu"}, status=status.HTTP_400_BAD_REQUEST)

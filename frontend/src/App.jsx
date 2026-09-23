@@ -6,14 +6,13 @@ function App() {
   const [categories, setCategories] = useState([])
   const [clients, setClients] = useState([]) 
   const [templates, setTemplates] = useState([])
-  const [printers, setPrinters] = useState([]) // Liste des imprimantes réseau
+  const [printers, setPrinters] = useState([])
   const [filteredProducts, setFilteredProducts] = useState([])
   
   // --- DÉTECTION DU MODE : ATELIER OU POWER USER (LAPTOP) ---
   const urlParams = new URLSearchParams(window.location.search);
-  const stationParam = urlParams.get('station'); // Ex: "EXTRUSION_01" ou null
+  const stationParam = urlParams.get('station'); // Ex: "PC_EXTRUSION_01" ou null
   
-  // Si ?station=... est présent -> Mode Atelier verrouillé. Sinon -> Mode Power User
   const isPowerUser = !stationParam;
   const [selectedPrinterId, setSelectedPrinterId] = useState('');
 
@@ -30,13 +29,17 @@ function App() {
   const [activeCategory, setActiveCategory] = useState('Tous')
   const [loading, setLoading] = useState(true)
 
+  // --- ÉTATS D'IMPRESSION & NOTIFICATIONS ERGONOMIQUES ---
+  const [isPrinting, setIsPrinting] = useState(false)
+  const [notification, setNotification] = useState(null) // { type: 'success' | 'error', message: '' }
+
   const [isFreeInputMode, setIsFreeInputMode] = useState(false)
   const [selectedProduct, setSelectedProduct] = useState(null)
   const [selectedClient, setSelectedClient] = useState(null) 
   const [clientSearchTerm, setClientSearchTerm] = useState('') 
   const [selectedTemplateId, setSelectedTemplateId] = useState('')
 
- // Champs Carton Expédition (vides par défaut ou saisis à la volée)
+  // Champs Carton Expédition
   const [cartonTitre, setCartonTitre] = useState('')
   const [cartonType, setCartonType] = useState('')
   const [cartonQty, setCartonQty] = useState('')
@@ -55,7 +58,18 @@ function App() {
   const [colisCount, setColisCount] = useState(1)       
   const [labelsPerColis, setLabelsPerColis] = useState(1) 
 
+  // État temporisé pour Labelary (anti-clignotement)
+  const [debouncedZplCode, setDebouncedZplCode] = useState('')
+
   const designationVolante = `GAINE ${selectedMatiere}`;
+
+  // Gestion de la disparition automatique du toast de notification
+  useEffect(() => {
+    if (notification) {
+      const timer = setTimeout(() => setNotification(null), 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [notification]);
 
   useEffect(() => {
     const API_BASE = `http://${window.location.hostname}:8000`;
@@ -73,7 +87,7 @@ function App() {
       fetchJson(`${API_BASE}/api/categories/`),
       fetchJson(`${API_BASE}/api/clients/`),
       fetchJson(`${API_BASE}/api/templates/`),
-      fetchJson(`${API_BASE}/api/printers/`) // Récupération des imprimantes
+      fetchJson(`${API_BASE}/api/printers/`)
     ])
     .then(([productsData, categoriesData, clientsData, templatesData, printersData]) => {
       setProducts(productsData || []);
@@ -83,12 +97,14 @@ function App() {
       setPrinters(printersData || []);
       setFilteredProducts(productsData || []);
 
-      // Sélectionne par défaut la première imprimante active si on est sur laptop
       if (printersData && printersData.length > 0) {
         setSelectedPrinterId(printersData[0].id);
       }
     })
-    .catch(error => console.error("Erreur API :", error))
+    .catch(error => {
+      console.error("Erreur API :", error);
+      setNotification({ type: 'error', message: "Impossible de joindre le serveur Django central." });
+    })
     .finally(() => {
       setLoading(false);
     });
@@ -147,6 +163,12 @@ function App() {
       if (tplBobine) setSelectedTemplateId(tplBobine.id);
     } else if (posteKey === 'carton') {
       setIsFreeInputMode(true);
+      // Pré-remplissage type pour accélérer la saisie atelier
+      if (!cartonTitre) setCartonTitre('MOUCHOIRS - Collection Standard');
+      if (!cartonType) setCartonType('2 Plis 70 mouchoirs Ultra Doux');
+      if (!cartonQty) setCartonQty('6 Packs x 4 units');
+      if (!cartonDest) setCartonDest('SUISSE');
+
       const tplCarton = templates.find(t => 
         t.name.toLowerCase().includes('carton') || 
         t.name.toLowerCase().includes('expedition') ||
@@ -180,9 +202,30 @@ function App() {
     chosenTemplateObj.name.toLowerCase().includes('mouchoir')
   ));
 
-  const getZPLTemplate = () => {
-    const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-    const lotSimule = `SO-${today.slice(2)}-0231`;
+  // --- GÉNÉRATION DYNAMIQUE DU CODE ZPL ---
+  const calculateRawZpl = () => {
+    const now = new Date();
+    const yy = String(now.getFullYear()).slice(-2);
+    const mm = String(now.getMonth() + 1).padStart(2, '0');
+    const dd = String(now.getDate()).padStart(2, '0');
+    const todayStr = `${yy}${mm}${dd}`;
+
+    let rawCodePoste = 'PC_EXTRUSION_01';
+    if (!isPowerUser && stationParam) {
+      rawCodePoste = stationParam;
+    } else if (isPowerUser && selectedPrinterId) {
+      const pObj = printers.find(p => String(p.id) === String(selectedPrinterId));
+      if (pObj && pObj.code_poste) rawCodePoste = pObj.code_poste;
+    }
+
+    const cleaned = rawCodePoste.toUpperCase().replace('PC_', '');
+    const match = cleaned.match(/([A-Z]{3,4}).*?(\d+)/);
+    const prefixePoste = match ? `${match[1].slice(0, 3)}${match[2]}` : cleaned.slice(0, 4);
+
+    const lotBatch = `${prefixePoste}-${todayStr}`;
+    const codeColisUnique = `${lotBatch}-0001`;
+    const totalColis = Number(colisCount) || 1;
+    const colisDisplay = totalColis > 1 ? `1/${totalColis}` : '1';
 
     let zpl = null;
     if (selectedTemplateId && chosenTemplateObj) {
@@ -206,67 +249,93 @@ function App() {
     const estPoids = selectedProduct ? (selectedProduct.unit_symbol?.toLowerCase() === 'kg') : (uniteVolante.toLowerCase() === 'kg');
     const currentInputValue = estPoids ? weight : packCount;
 
-    zpl = zpl.replace(/{NAME}/g, isCartonTemplate ? cartonTitre : (selectedProduct ? selectedProduct.name : designationVolante));
-    zpl = zpl.replace(/{TYPE_DETAILS}/g, cartonType);
-    zpl = zpl.replace(/{QTY_DETAILS}/g, cartonQty);
-    zpl = zpl.replace(/{DESTINATION}/g, selectedClient ? selectedClient.nom : cartonDest);
+    zpl = zpl.replace(/{NAME}/g, isCartonTemplate ? (cartonTitre || 'COLIS EXPEDITION') : (selectedProduct ? selectedProduct.name : designationVolante));
+    zpl = zpl.replace(/{TYPE_DETAILS}/g, cartonType || '');
+    zpl = zpl.replace(/{QTY_DETAILS}/g, cartonQty || '');
+    zpl = zpl.replace(/{DESTINATION}/g, (selectedClient ? selectedClient.nom : (cartonDest || 'SUISSE')).toUpperCase());
     
-    const cleanPoidsNet = cartonPoidsNet.toLowerCase().includes('kg') ? cartonPoidsNet : `${cartonPoidsNet}`;
-    const cleanPoidsBrut = cartonPoidsBrut.toLowerCase().includes('kg') ? cartonPoidsBrut : `${cartonPoidsBrut}`;
+    const cleanPoidsNet = cartonPoidsNet ? (cartonPoidsNet.toLowerCase().includes('kg') ? cartonPoidsNet : `${cartonPoidsNet} kg`) : '';
+    const cleanPoidsBrut = cartonPoidsBrut ? (cartonPoidsBrut.toLowerCase().includes('kg') ? cartonPoidsBrut : `${cartonPoidsBrut} kg`) : '';
 
     zpl = zpl.replace(/{POIDS_NET}/g, cleanPoidsNet);
     zpl = zpl.replace(/{POIDS_BRUT}/g, cleanPoidsBrut);
     zpl = zpl.replace(/{SKU}/g, selectedProduct ? selectedProduct.sku : `BOB-${selectedMatiere}-${laize}CM-${micron}MIC`);
-    zpl = zpl.replace(/{LOT}/g, lotSimule);
+    
+    zpl = zpl.replace(/{LOT}/g, codeColisUnique);
+    zpl = zpl.replace(/{LOT_BATCH}/g, lotBatch);
+    zpl = zpl.replace(/{COLIS}/g, colisDisplay);
+
     zpl = zpl.replace(/{VALUE}/g, currentInputValue);
     zpl = zpl.replace(/{UNIT}/g, selectedProduct ? selectedProduct.unit_symbol : uniteVolante);
     zpl = zpl.replace(/{LAIZE}/g, laize);
     zpl = zpl.replace(/{MICRON}/g, micron);
     zpl = zpl.replace(/{CLIENT_NAME}/g, selectedClient ? selectedClient.nom : '');
+    zpl = zpl.replace(/{CLIENT_NUM}/g, selectedClient ? selectedClient.numero_client : '');
 
     if (labelsPerColis > 1) {
       zpl = zpl.replace('^XZ', `^PQ${labelsPerColis}^XZ`);
     }
 
-    return encodeURIComponent(zpl);
-  }
+    return zpl;
+  };
 
-  const previewImageUrl = (selectedProduct || isFreeInputMode) 
-    ? `http://api.labelary.com/v1/printers/8dpmm/labels/3.94x3.15/0/${getZPLTemplate()}` 
-    : ''
+  // Temporisation (debounce) pour soulager Labelary
+  useEffect(() => {
+    const raw = calculateRawZpl();
+    const handle = setTimeout(() => {
+      setDebouncedZplCode(raw);
+    }, 250);
+    return () => clearTimeout(handle);
+  }, [
+    selectedProduct, isFreeInputMode, selectedTemplateId, selectedClient,
+    cartonTitre, cartonType, cartonQty, cartonDest, cartonPoidsNet, cartonPoidsBrut,
+    selectedMatiere, laize, micron, weight, packCount, uniteVolante,
+    colisCount, labelsPerColis, isPowerUser, selectedPrinterId, stationParam
+  ]);
 
+  const previewImageUrl = (selectedProduct || isFreeInputMode) && debouncedZplCode
+    ? `http://api.labelary.com/v1/printers/8dpmm/labels/3.94x3.15/0/${encodeURIComponent(debouncedZplCode)}` 
+    : '';
+
+  // --- SOUMISSION DE L'IMPRESSION AVEC PROTECTION ANTI DOUBLE-CLIC ---
   const handlePrintTest = (e) => {
     e.preventDefault();
-    const API_BASE = `http://${window.location.hostname}:8000`;
+    if (isPrinting) return;
 
+    setIsPrinting(true);
+    setNotification(null);
+
+    const API_BASE = `http://${window.location.hostname}:8000`;
     const estPoids = selectedProduct ? (selectedProduct.unit_symbol?.toLowerCase() === 'kg') : (uniteVolante.toLowerCase() === 'kg');
     const currentInputValue = estPoids ? weight : packCount;
-    const finalColisCount = selectedProduct ? colisCount : 1;
 
-    // Construction du payload : si Power User, on transmet l'imprimante choisie.
-    // Si Atelier, on transmet le code poste de la station.
+    let codePostePayload = stationParam || 'PC_EXTRUSION_01';
+    if (isPowerUser && selectedPrinterId) {
+      const chosenP = printers.find(p => String(p.id) === String(selectedPrinterId));
+      if (chosenP && chosenP.code_poste) {
+        codePostePayload = chosenP.code_poste;
+      }
+    }
+
     const payload = {
+      code_poste: codePostePayload,
       printer_id: isPowerUser ? selectedPrinterId : null,
-      station_code: !isPowerUser ? (stationParam || 'EXTRUSION_01') : null,
       template_id: selectedTemplateId || null,
       is_free_input: !selectedProduct,
       product_id: selectedProduct ? selectedProduct.id : null,
-      custom_name: cartonTitre || (selectedProduct ? selectedProduct.name : designationVolante),
-      
-      // Données colis / carton
+      custom_name: isCartonTemplate ? (cartonTitre || 'COLIS EXPEDITION') : (selectedProduct ? selectedProduct.name : designationVolante),
       type_details: cartonType || null,
       qty_details: cartonQty || null,
       destination: selectedClient ? selectedClient.nom : (cartonDest || null),
       poids_net: cartonPoidsNet ? (cartonPoidsNet.includes('kg') ? cartonPoidsNet : `${cartonPoidsNet} kg`) : null,
       poids_brut: cartonPoidsBrut ? (cartonPoidsBrut.includes('kg') ? cartonPoidsBrut : `${cartonPoidsBrut} kg`) : null,
-
       matiere: selectedMatiere,
       laize: !selectedProduct ? laize : null,
       micron: !selectedProduct ? micron : null,
       value: currentInputValue,
       unit_str: selectedProduct ? selectedProduct.unit_symbol : uniteVolante,
-      colis_count: finalColisCount,
-      labels_per_colis: labelsPerColis,
+      colis_count: Number(colisCount) || 1,
+      labels_per_colis: Number(labelsPerColis) || 1,
       client_name: selectedClient ? selectedClient.nom : '',          
       client_num: selectedClient ? selectedClient.numero_client : ''   
     };
@@ -279,15 +348,18 @@ function App() {
     .then(res => res.json())
     .then(data => {
       if (data.status === 'success') {
-        alert(`✅ Succès : ${data.message}`);
+        setNotification({ type: 'success', message: `✅ Impression envoyée : ${data.message}` });
         handleResetToMenu();
       } else {
-        alert(`❌ Erreur : ${data.error || data.message}`);
+        setNotification({ type: 'error', message: `❌ Erreur : ${data.error || data.message}` });
       }
     })
     .catch(err => {
       console.error(err);
-      alert("❌ Impossible de communiquer avec le serveur d'impression.");
+      setNotification({ type: 'error', message: "❌ Impossible d'atteindre le serveur d'impression réseau." });
+    })
+    .finally(() => {
+      setIsPrinting(false);
     });
   }
 
@@ -300,6 +372,36 @@ function App() {
 
   return (
     <div className="kiosk-container">
+      
+      {/* BANDEAU TOAST NOTIFICATION ERGONOMIQUE */}
+      {notification && (
+        <div style={{
+          position: 'fixed',
+          top: '20px',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          zIndex: 9999,
+          background: notification.type === 'success' ? '#27ae60' : '#e74c3c',
+          color: '#fff',
+          padding: '14px 28px',
+          borderRadius: '10px',
+          fontWeight: 'bold',
+          fontSize: '16px',
+          boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px'
+        }}>
+          <span>{notification.message}</span>
+          <button 
+            onClick={() => setNotification(null)}
+            style={{ background: 'none', border: 'none', color: '#fff', fontSize: '18px', cursor: 'pointer', marginLeft: '10px' }}
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       <header className="kiosk-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '15px 30px' }}>
         <div>
           <h1 style={{ margin: 0 }}>MAR PLASTIC</h1>
@@ -506,16 +608,13 @@ function App() {
                   <span className="print-badge" style={{ background: selectedProduct ? '#2980b9' : '#27ae60' }}>
                     {selectedProduct ? selectedProduct.category_name : 'SAISIE VOLANTE'}
                   </span>
-                  <h3>{isCartonTemplate ? cartonTitre : (selectedProduct ? selectedProduct.name : designationVolante)}</h3>
+                  <h3>{isCartonTemplate ? (cartonTitre || 'COLIS EXPÉDITION') : (selectedProduct ? selectedProduct.name : designationVolante)}</h3>
                   {selectedProduct && <p><strong>Réf SKU :</strong> {selectedProduct.sku}</p>}
                 </div>
 
                 <form onSubmit={handlePrintTest} className="print-form">
 
-                  {/* ============================================================ */}
-                  {/* SÉLECTION D'IMPRIMANTE : CONDITIONNELLEMENT AFFICHÉ         */}
-                  {/* Uniquement visible sur Laptop / Power User, caché en atelier*/}
-                  {/* ============================================================ */}
+                  {/* SÉLECTION D'IMPRIMANTE : CONDITIONNELLEMENT AFFICHÉ (LAPTOP / POWER USER) */}
                   {isPowerUser ? (
                     <div className="form-group" style={{ background: '#fdf2e9', padding: '12px', borderRadius: '8px', border: '2px solid #e67e22', marginBottom: '15px' }}>
                       <label style={{ fontWeight: 'bold', color: '#d35400', display: 'block', marginBottom: '6px' }}>
@@ -665,6 +764,7 @@ function App() {
                             onChange={(e) => setCartonPoidsNet(e.target.value)} 
                             className="form-input" 
                             style={{ width: '100%', borderRadius: '6px' }}
+                            placeholder="ex: 3.900"
                           />
                         </div>
 
@@ -676,6 +776,7 @@ function App() {
                             onChange={(e) => setCartonPoidsBrut(e.target.value)} 
                             className="form-input" 
                             style={{ width: '100%', borderRadius: '6px' }}
+                            placeholder="ex: 3.250"
                           />
                         </div>
                       </div>
@@ -783,18 +884,86 @@ function App() {
                     </>
                   )}
 
-                  {/* NOMBRE D'ÉTIQUETTES / COLIS */}
-                  <div className="form-group">
-                    <label>Nombre d'étiquettes à imprimer :</label>
-                    <div className="quantity-selector" style={{ maxWidth: '200px' }}>
-                      <button type="button" onClick={() => setLabelsPerColis(Math.max(1, labelsPerColis - 1))} className="qty-btn">-</button>
-                      <input type="number" value={labelsPerColis} className="qty-input" readOnly />
-                      <button type="button" onClick={() => setLabelsPerColis(labelsPerColis + 1)} className="qty-btn">+</button>
+                  {/* NOMBRE DE COLIS (RATIO) - BOUTONS AGRANDIS */}
+                  <div className="form-group" style={{ marginTop: '10px' }}>
+                    <label>Nombre de Colis / Cartons :</label>
+                    <div className="quantity-selector" style={{ maxWidth: '240px', display: 'flex', alignItems: 'center' }}>
+                      <button 
+                        type="button" 
+                        onClick={() => setColisCount(Math.max(1, colisCount - 1))} 
+                        className="qty-btn"
+                        style={{ minWidth: '48px', minHeight: '44px', fontSize: '20px', fontWeight: 'bold' }}
+                      >
+                        -
+                      </button>
+                      <input 
+                        type="number" 
+                        value={colisCount} 
+                        onChange={(e) => setColisCount(Math.max(1, parseInt(e.target.value) || 1))} 
+                        className="qty-input" 
+                        style={{ height: '44px', fontSize: '18px', fontWeight: 'bold', textAlign: 'center' }}
+                      />
+                      <button 
+                        type="button" 
+                        onClick={() => setColisCount(colisCount + 1)} 
+                        className="qty-btn"
+                        style={{ minWidth: '48px', minHeight: '44px', fontSize: '20px', fontWeight: 'bold' }}
+                      >
+                        +
+                      </button>
                     </div>
                   </div>
 
-                  <button type="submit" className="submit-print-btn" style={{ background: isCartonTemplate ? '#27ae60' : '#2980b9' }}>
-                    🖨️ IMPRIMER L'ÉTIQUETTE
+                  {/* EXEMPLAIRES PAR COLIS - BOUTONS AGRANDIS */}
+                  <div className="form-group">
+                    <label>Exemplaires par colis :</label>
+                    <div className="quantity-selector" style={{ maxWidth: '240px', display: 'flex', alignItems: 'center' }}>
+                      <button 
+                        type="button" 
+                        onClick={() => setLabelsPerColis(Math.max(1, labelsPerColis - 1))} 
+                        className="qty-btn"
+                        style={{ minWidth: '48px', minHeight: '44px', fontSize: '20px', fontWeight: 'bold' }}
+                      >
+                        -
+                      </button>
+                      <input 
+                        type="number" 
+                        value={labelsPerColis} 
+                        onChange={(e) => setLabelsPerColis(Math.max(1, parseInt(e.target.value) || 1))} 
+                        className="qty-input" 
+                        style={{ height: '44px', fontSize: '18px', fontWeight: 'bold', textAlign: 'center' }}
+                      />
+                      <button 
+                        type="button" 
+                        onClick={() => setLabelsPerColis(labelsPerColis + 1)} 
+                        className="qty-btn"
+                        style={{ minWidth: '48px', minHeight: '44px', fontSize: '20px', fontWeight: 'bold' }}
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* BOUTON D'IMPRESSION SÉCURISÉ CONTRE LE MULTI-CLIC */}
+                  <button 
+                    type="submit" 
+                    disabled={isPrinting}
+                    className="submit-print-btn" 
+                    style={{ 
+                      background: isPrinting ? '#7f8c8d' : (isCartonTemplate ? '#27ae60' : '#2980b9'),
+                      cursor: isPrinting ? 'not-allowed' : 'pointer',
+                      padding: '16px',
+                      fontSize: '17px',
+                      fontWeight: 'bold',
+                      boxShadow: '0 4px 10px rgba(0,0,0,0.15)',
+                      transition: 'all 0.2s ease'
+                    }}
+                  >
+                    {isPrinting ? (
+                      <span>⏳ Transmission directe Ethernet en cours...</span>
+                    ) : (
+                      <span>🖨️ IMPRIMER L'ÉTIQUETTE ({colisCount * labelsPerColis} ex.)</span>
+                    )}
                   </button>
                 </form>
               </div>
@@ -811,7 +980,7 @@ function App() {
                 </div>
                 <p className="preview-footnote">
                   {isCartonTemplate 
-                    ? `Mode Étiquette Carton Expédition : ${cartonTitre}`
+                    ? `Mode Étiquette Carton Expédition : ${cartonTitre || 'Sans titre'}`
                     : (selectedProduct 
                         ? `Produit Catalogue : [${selectedProduct.sku}] ${selectedProduct.name}`
                         : `Mode Saisie Volante : GAINE ${selectedMatiere}`
