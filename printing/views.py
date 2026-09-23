@@ -237,7 +237,7 @@ class PrintLabelAPIView(APIView):
                     produit_nom=product_name,
                     sku=sku_display,
                     client_nom=client_name or "",
-                    destination=str(dest_val).upper() if dest_val else "",
+                    # ❌ LIGNE DESTINATION SUPPRIMÉE ICI
                     laize=str(laize) if laize else None,
                     micron=str(micron) if micron else None,
                     quantite_valeur=str(value) if value else None,
