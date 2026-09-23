@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Category, LabelTemplate, Product
+from .models import Category, LabelTemplate, Product, ConfigurationImprimante
 
 class CategorySerializer(serializers.ModelSerializer):
     class Meta:
@@ -41,3 +41,11 @@ class ProductSerializer(serializers.ModelSerializer):
             "^FO50,270^BY3^BCN,80,Y,N,N^FD{SKU}^FS\n"
             "^XZ"
         )
+class ConfigurationImprimanteSerializer(serializers.ModelSerializer):
+    nom = serializers.CharField(source='nom_emplacement', read_only=True)
+    ip_address = serializers.CharField(source='adresse_ip', read_only=True)
+    port = serializers.IntegerField(source='port_reseau', read_only=True)
+
+    class Meta:
+        model = ConfigurationImprimante
+        fields = ['id', 'nom', 'code_poste', 'ip_address', 'port', 'mode_connexion']

@@ -6,10 +6,18 @@ function App() {
   const [categories, setCategories] = useState([])
   const [clients, setClients] = useState([]) 
   const [templates, setTemplates] = useState([])
+  const [printers, setPrinters] = useState([]) // Liste des imprimantes réseau
   const [filteredProducts, setFilteredProducts] = useState([])
   
-  // --- NOUVEAU : POSTE D'ATELIER ACTIF ---
-  // null = Écran d'accueil à gros boutons | 'bobine' | 'sachet' | 'carton' | 'catalogue'
+  // --- DÉTECTION DU MODE : ATELIER OU POWER USER (LAPTOP) ---
+  const urlParams = new URLSearchParams(window.location.search);
+  const stationParam = urlParams.get('station'); // Ex: "EXTRUSION_01" ou null
+  
+  // Si ?station=... est présent -> Mode Atelier verrouillé. Sinon -> Mode Power User
+  const isPowerUser = !stationParam;
+  const [selectedPrinterId, setSelectedPrinterId] = useState('');
+
+  // --- GESTION DU POSTE ATELIER ---
   const [activePoste, setActivePoste] = useState(null)
 
   // --- SYSTÈME DE FAVORIS ---
@@ -18,21 +26,17 @@ function App() {
     return saved ? JSON.parse(saved) : [];
   });
 
-  // États pour les filtres du Catalogue
   const [searchTerm, setSearchTerm] = useState('')
   const [activeCategory, setActiveCategory] = useState('Tous')
   const [loading, setLoading] = useState(true)
 
-  // Mode Saisie Volante / Studio
   const [isFreeInputMode, setIsFreeInputMode] = useState(false)
-
-  // États pour la sélection du Studio
   const [selectedProduct, setSelectedProduct] = useState(null)
   const [selectedClient, setSelectedClient] = useState(null) 
   const [clientSearchTerm, setClientSearchTerm] = useState('') 
   const [selectedTemplateId, setSelectedTemplateId] = useState('')
 
-  // --- CHAMPS SPÉCIAUX POUR ÉTIQUETTE CARTON / EXPÉDITION ---
+  // Champs Carton Expédition
   const [cartonTitre, setCartonTitre] = useState('MOUCHOIRS – Collection Marbre Noir')
   const [cartonType, setCartonType] = useState('2 Plis 70 mouchoirs Ultra Doux')
   const [cartonQty, setCartonQty] = useState('6 Packs x 4 units')
@@ -40,23 +44,19 @@ function App() {
   const [cartonPoidsNet, setCartonPoidsNet] = useState('3.900kg')
   const [cartonPoidsBrut, setCartonPoidsBrut] = useState('3.250kg')
 
-  // Choix rapide de matière pour Saisie Volante Bobine (PP / PE)
+  // Champs Bobine
   const [selectedMatiere, setSelectedMatiere] = useState('PE')
-
-  // Champs de saisie standard Bobine
   const [laize, setLaize] = useState('50')
   const [micron, setMicron] = useState('50')
   const [weight, setWeight] = useState('180')
   const [packCount, setPackCount] = useState('500')
   const [uniteVolante, setUniteVolante] = useState('Kg')
 
-  // Compteurs industriels
   const [colisCount, setColisCount] = useState(1)       
   const [labelsPerColis, setLabelsPerColis] = useState(1) 
 
   const designationVolante = `GAINE ${selectedMatiere}`;
 
-  // Chargement des données Django depuis l'API
   useEffect(() => {
     const API_BASE = `http://${window.location.hostname}:8000`;
 
@@ -72,14 +72,21 @@ function App() {
       fetchJson(`${API_BASE}/api/products/`),
       fetchJson(`${API_BASE}/api/categories/`),
       fetchJson(`${API_BASE}/api/clients/`),
-      fetchJson(`${API_BASE}/api/templates/`)
+      fetchJson(`${API_BASE}/api/templates/`),
+      fetchJson(`${API_BASE}/api/printers/`) // Récupération des imprimantes
     ])
-    .then(([productsData, categoriesData, clientsData, templatesData]) => {
-      setProducts(productsData);
-      setCategories(categoriesData);
-      setClients(clientsData);
-      setTemplates(templatesData);
-      setFilteredProducts(productsData);
+    .then(([productsData, categoriesData, clientsData, templatesData, printersData]) => {
+      setProducts(productsData || []);
+      setCategories(categoriesData || []);
+      setClients(clientsData || []);
+      setTemplates(templatesData || []);
+      setPrinters(printersData || []);
+      setFilteredProducts(productsData || []);
+
+      // Sélectionne par défaut la première imprimante active si on est sur laptop
+      if (printersData && printersData.length > 0) {
+        setSelectedPrinterId(printersData[0].id);
+      }
     })
     .catch(error => console.error("Erreur API :", error))
     .finally(() => {
@@ -128,7 +135,6 @@ function App() {
       .sort((a, b) => a.nom.localeCompare(b.nom));
   }
 
-  // Configuration rapide déclenchée par les tuiles de l'accueil
   const handleSelectPosteTile = (posteKey) => {
     setActivePoste(posteKey);
     setSelectedProduct(null);
@@ -149,7 +155,6 @@ function App() {
       if (tplCarton) setSelectedTemplateId(tplCarton.id);
     } else if (posteKey === 'sachet') {
       setIsFreeInputMode(false);
-      // Filtre la catégorie sachets si existante
       const sachetCat = categories.find(c => c.name.toLowerCase().includes('sachet') || c.name.toLowerCase().includes('sac'));
       if (sachetCat) setActiveCategory(sachetCat.name);
       else setActiveCategory('Tous');
@@ -168,7 +173,6 @@ function App() {
     setSelectedTemplateId('');
   };
 
-  // Détection du modèle sélectionné (ou fallback sur mots-clés)
   const chosenTemplateObj = templates.find(t => String(t.id) === String(selectedTemplateId));
   const isCartonTemplate = activePoste === 'carton' || (chosenTemplateObj && (
     chosenTemplateObj.name.toLowerCase().includes('carton') || 
@@ -176,26 +180,21 @@ function App() {
     chosenTemplateObj.name.toLowerCase().includes('mouchoir')
   ));
 
-  // Génération dynamique de l'aperçu ZPL (Labelary)
   const getZPLTemplate = () => {
     const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
     const lotSimule = `SO-${today.slice(2)}-0231`;
 
     let zpl = null;
-
     if (selectedTemplateId && chosenTemplateObj) {
       zpl = chosenTemplateObj.zpl_code;
     }
-
     if (!zpl && selectedProduct?.zpl_template) {
       zpl = selectedProduct.zpl_template;
     }
-
     if (!zpl) {
       const templateBobine = categories.flatMap(c => c.default_template).find(t => t?.name?.toLowerCase().includes('bobine'));
       zpl = templateBobine ? templateBobine.zpl_code : null;
     }
-
     if (!zpl) {
       if (isCartonTemplate) {
         zpl = `^XA^CI28^PW800^LL600^FO30,30^GB740,65,2^FS^FO50,48^A0N,30,30^FD{NAME}^FS^FO50,110^A0N,22,22^FDType: {TYPE_DETAILS}^FS^FO50,140^A0N,22,22^FDQty: {QTY_DETAILS}^FS^FO30,175^GB740,75,2^FS^FO50,188^A0N,24,24^FDMADE IN MOROCCO^FS^FO50,218^A0N,20,20^FDLot: {LOT}^FS^FO450,218^A0N,20,20^FDDEST: {DESTINATION}^FS^FO40,268^A0N,20,20^FDPoids Net: {POIDS_NET}^FS^FO450,268^A0N,20,20^FDPoids Brut: {POIDS_BRUT}^FS^FO30,305^GB230,45,2^FS^FO30,305^GB480,45,2^FS^FO30,305^GB740,45,2^FS^FO80,318^A0N,18,18^FDFRAGILE^FS^FO300,318^A0N,18,18^FDKEEP DRY^FS^FO600,318^A0N,18,18^FDUP^FS^FO150,380^BY2,3,100^BCN,100,N,N,N^FD{LOT}^FS^FO310,490^A0N,18,18^FD{LOT}^FS^XZ`;
@@ -244,7 +243,11 @@ function App() {
     const currentInputValue = estPoids ? weight : packCount;
     const finalColisCount = selectedProduct ? colisCount : 1;
 
+    // Construction du payload : si Power User, on transmet l'imprimante choisie.
+    // Si Atelier, on transmet le code poste de la station.
     const payload = {
+      printer_id: isPowerUser ? selectedPrinterId : null,
+      station_code: !isPowerUser ? (stationParam || 'EXTRUSION_01') : null,
       template_id: selectedTemplateId || null,
       is_free_input: !selectedProduct,
       product_id: selectedProduct ? selectedProduct.id : null,
@@ -299,8 +302,11 @@ function App() {
       <header className="kiosk-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '15px 30px' }}>
         <div>
           <h1 style={{ margin: 0 }}>MAR PLASTIC</h1>
-          <p style={{ margin: 0, opacity: 0.85 }}>Studio d'Impression Industrialisé</p>
+          <p style={{ margin: 0, opacity: 0.85 }}>
+            {isPowerUser ? "Mode Bureau / Power User" : `Poste Atelier : ${stationParam}`}
+          </p>
         </div>
+        
         {activePoste && (
           <button 
             onClick={handleResetToMenu}
@@ -322,7 +328,7 @@ function App() {
       </header>
 
       {/* ============================================================ */}
-      {/* ÉCRAN 0 : ACCUEIL DES POSTES ATELIER (GROS BOUTONS TACTILES) */}
+      {/* ÉCRAN 0 : ACCUEIL DES POSTES ATELIER                         */}
       {/* ============================================================ */}
       {!activePoste ? (
         <div style={{ maxWidth: '1100px', margin: '30px auto', padding: '0 20px' }}>
@@ -345,8 +351,7 @@ function App() {
                 padding: '30px 20px',
                 textAlign: 'center',
                 cursor: 'pointer',
-                boxShadow: '0 6px 15px rgba(41, 128, 185, 0.15)',
-                transition: 'transform 0.15s ease'
+                boxShadow: '0 6px 15px rgba(41, 128, 185, 0.15)'
               }}
             >
               <div style={{ fontSize: '50px', marginBottom: '12px' }}>🌀</div>
@@ -367,8 +372,7 @@ function App() {
                 padding: '30px 20px',
                 textAlign: 'center',
                 cursor: 'pointer',
-                boxShadow: '0 6px 15px rgba(22, 160, 133, 0.15)',
-                transition: 'transform 0.15s ease'
+                boxShadow: '0 6px 15px rgba(22, 160, 133, 0.15)'
               }}
             >
               <div style={{ fontSize: '50px', marginBottom: '12px' }}>🛍️</div>
@@ -389,8 +393,7 @@ function App() {
                 padding: '30px 20px',
                 textAlign: 'center',
                 cursor: 'pointer',
-                boxShadow: '0 6px 15px rgba(39, 174, 96, 0.15)',
-                transition: 'transform 0.15s ease'
+                boxShadow: '0 6px 15px rgba(39, 174, 96, 0.15)'
               }}
             >
               <div style={{ fontSize: '50px', marginBottom: '12px' }}>📦</div>
@@ -411,8 +414,7 @@ function App() {
                 padding: '30px 20px',
                 textAlign: 'center',
                 cursor: 'pointer',
-                boxShadow: '0 6px 15px rgba(142, 68, 173, 0.15)',
-                transition: 'transform 0.15s ease'
+                boxShadow: '0 6px 15px rgba(142, 68, 173, 0.15)'
               }}
             >
               <div style={{ fontSize: '50px', marginBottom: '12px' }}>🔍</div>
@@ -508,6 +510,34 @@ function App() {
                 </div>
 
                 <form onSubmit={handlePrintTest} className="print-form">
+
+                  {/* ============================================================ */}
+                  {/* SÉLECTION D'IMPRIMANTE : CONDITIONNELLEMENT AFFICHÉ         */}
+                  {/* Uniquement visible sur Laptop / Power User, caché en atelier*/}
+                  {/* ============================================================ */}
+                  {isPowerUser ? (
+                    <div className="form-group" style={{ background: '#fdf2e9', padding: '12px', borderRadius: '8px', border: '2px solid #e67e22', marginBottom: '15px' }}>
+                      <label style={{ fontWeight: 'bold', color: '#d35400', display: 'block', marginBottom: '6px' }}>
+                        🖨️ Sélection Imprimante Réseau (Bureau / Laptop) :
+                      </label>
+                      <select 
+                        className="form-input"
+                        value={selectedPrinterId} 
+                        onChange={(e) => setSelectedPrinterId(e.target.value)}
+                        style={{ width: '100%', borderRadius: '6px', fontSize: '15px', height: '40px', background: '#fff', fontWeight: 'bold' }}
+                      >
+                        {printers.length > 0 ? (
+                          printers.map(p => (
+                            <option key={p.id} value={p.id}>
+                              {p.nom} — {p.ip_address}:{p.port} ({p.code_poste || 'Générale'})
+                            </option>
+                          ))
+                        ) : (
+                          <option value="">Aucune imprimante configurée (par défaut)</option>
+                        )}
+                      </select>
+                    </div>
+                  ) : null}
 
                   {/* SÉLECTION DU MODÈLE D'ÉTIQUETTE (TEMPLATE) */}
                   <div className="form-group" style={{ background: '#f0f3f6', padding: '12px', borderRadius: '8px', border: '2px solid #3498db' }}>

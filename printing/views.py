@@ -11,7 +11,11 @@ from .models import (
     Category, LabelTemplate, Product, ConfigurationImprimante, 
     Client, ImpressionEtiquette
 )
-from .serializers import CategorySerializer, LabelTemplateSerializer, ProductSerializer
+# Correction de la faute de frappe "onfigurationImprimanteSerializer"
+from .serializers import (
+    CategorySerializer, LabelTemplateSerializer, ProductSerializer, 
+    ConfigurationImprimanteSerializer
+)
 
 # Chargement du fichier .env au démarrage du serveur
 load_dotenv()
@@ -58,8 +62,6 @@ class ClientViewSet(viewsets.ModelViewSet):
     queryset = Client.objects.all().order_by('nom')
     serializer_class = ClientSerializer
 
-
-# Serializer et ViewSet pour l'historique des impressions (Traçabilité)
 class ImpressionEtiquetteSerializer(ModelSerializer):
     class Meta:
         model = ImpressionEtiquette
@@ -68,6 +70,11 @@ class ImpressionEtiquetteSerializer(ModelSerializer):
 class ImpressionEtiquetteViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = ImpressionEtiquette.objects.all().order_by('-date_impression')
     serializer_class = ImpressionEtiquetteSerializer
+
+class ConfigurationImprimanteViewSet(viewsets.ReadOnlyModelViewSet):
+    # Liste toutes les imprimantes en mode réseau pour le sélecteur du laptop
+    queryset = ConfigurationImprimante.objects.filter(mode_connexion='RESEAU')
+    serializer_class = ConfigurationImprimanteSerializer
 
 
 # =================================================================
@@ -110,40 +117,45 @@ class PrintLabelAPIView(APIView):
         labels_per_colis = int(request.data.get('labels_per_colis', 1))
         
         # -----------------------------------------------------------------
-        # 1. IDENTIFICATION DU POSTE PAR IP OU VIA CODE EN SECOURS
+        # 1. IDENTIFICATION PRÉCISE DE L'IMPRIMANTE CIBLE
         # -----------------------------------------------------------------
         client_ip = get_client_ip(request)
-        code_du_poste = request.data.get('code_poste')
+        printer_id = request.data.get('printer_id')
+        station_code = request.data.get('station_code')
 
         config = None
 
-        # A) Recherche explicite si un code_poste est fourni dans le payload
-        if code_du_poste:
-            config = ConfigurationImprimante.objects.filter(code_poste=code_du_poste).first()
+        # A) Priorité Bureau / Laptop : Choix explicite par ID d'imprimante
+        if printer_id:
+            config = ConfigurationImprimante.objects.filter(id=printer_id).first()
 
-        # B) Détection dynamique par adresse IP en BDD
+        # B) Priorité Borne Atelier : Choix par code poste (?station=...)
+        if not config and station_code:
+            config = ConfigurationImprimante.objects.filter(code_poste=station_code).first()
+
+        # C) Détection par adresse IP du poste client
         if not config:
             config = ConfigurationImprimante.objects.filter(adresse_ip=client_ip).first()
 
-        # C) Cas particulier : Serveur local (127.0.0.1 / localhost) -> fallback sur .env local
+        # D) Cas particulier : Serveur local (127.0.0.1 / localhost)
         if not config and client_ip in ['127.0.0.1', '::1', 'localhost']:
             env_code = os.environ.get('IDENTIFIANT_POSTE', 'PC_BUREAU')
             config = ConfigurationImprimante.objects.filter(code_poste=env_code).first()
 
-        # D) Repli automatique réseau : si l'IP client n'est pas reconnue
+        # E) Repli automatique réseau : première imprimante réseau active
         if not config:
             config = ConfigurationImprimante.objects.filter(mode_connexion='RESEAU').first()
 
-        # E) Repli d'urgence si AUCUNE configuration n'existe dans la base
+        # F) Repli de secours
         if not config:
             config = ConfigurationImprimante.objects.first()
 
         if not config:
             return Response({
-                "error": f"Poste non reconnu pour l'IP client '{client_ip}'. Veuillez créer une configuration dans l'admin Django."
+                "error": f"Aucune imprimante configurée pour le poste '{station_code or client_ip}'."
             }, status=status.HTTP_400_BAD_REQUEST)
 
-        print(f"🖨️ [Impression] Reçue de l'IP {client_ip} -> Configuration utilisée: {config.code_poste} ({config.adresse_ip})")
+        print(f"🖨️ [Impression] Cible retenue: {config.code_poste} ({config.adresse_ip or config.nom_systeme_windows})")
 
         # -----------------------------------------------------------------
         # 2. RÉCUPÉRATION DU PRODUIT ET DU TEMPLATE ZPL
@@ -151,7 +163,6 @@ class PrintLabelAPIView(APIView):
         template_id = request.data.get('template_id')
         zpl_template = None
 
-        # A) Modèle spécifique sélectionné dans le menu déroulant
         if template_id:
             try:
                 template_selected = LabelTemplate.objects.get(id=template_id)
@@ -167,7 +178,6 @@ class PrintLabelAPIView(APIView):
                 sku_display = product_obj.sku
                 unit_str = product_obj.unit.abbreviation if product_obj.unit else "U"
 
-                # Si aucun modèle explicite n'a été choisi dans le menu déroulant
                 if not zpl_template:
                     if product_obj.custom_template:
                         zpl_template = product_obj.custom_template.zpl_code
@@ -182,7 +192,6 @@ class PrintLabelAPIView(APIView):
             product_name = custom_name
             sku_display = f"BOB-{laize}-{micron}MIC" if laize and micron else "FAB-DIRECTE"
             
-            # Recherche d'un modèle "Bobine" si aucun template n'est précisé
             if not zpl_template:
                 template_bobine = LabelTemplate.objects.filter(name__icontains="Bobine").first()
                 if not template_bobine:
@@ -202,19 +211,16 @@ class PrintLabelAPIView(APIView):
         today_str = now.strftime("%Y%m%d")
         timestamp_commande = now.strftime("%H%M%S")
 
-        # Détermination de la destination
         dest_val = client_name if client_name else (destination if destination else "SUISSE")
         client_obj = Client.objects.filter(nom__iexact=client_name).first() if client_name else None
 
         records_to_create = []
 
         for i in range(colis_count):
-            # Numéro de lot unitaire distinct par carton (ex: SO-260923-1430-1)
             lot_unique = f"SO-{today_str[2:]}-{timestamp_commande[-4:]}-{i+1}"
-            
             texte_etiquette = zpl_template
             
-            # --- Remplacements variables génériques ---
+            # Variables standard
             texte_etiquette = texte_etiquette.replace("{NAME}", str(product_name))
             texte_etiquette = texte_etiquette.replace("{SKU}", str(sku_display))
             texte_etiquette = texte_etiquette.replace("{LOT}", lot_unique)
@@ -225,20 +231,18 @@ class PrintLabelAPIView(APIView):
             texte_etiquette = texte_etiquette.replace("{CLIENT_NAME}", str(client_name) if client_name else "")
             texte_etiquette = texte_etiquette.replace("{CLIENT_NUM}", str(client_num) if client_num else "")
             
-            # --- Remplacements spécifiques Carton / Expédition ---
+            # Variables Carton
             texte_etiquette = texte_etiquette.replace("{TYPE_DETAILS}", str(type_details))
             texte_etiquette = texte_etiquette.replace("{QTY_DETAILS}", str(qty_details))
             texte_etiquette = texte_etiquette.replace("{DESTINATION}", str(dest_val).upper())
             texte_etiquette = texte_etiquette.replace("{POIDS_NET}", str(poids_net))
             texte_etiquette = texte_etiquette.replace("{POIDS_BRUT}", str(poids_brut))
             
-            # Gestion du tirage multiple par colis
             if labels_per_colis > 1:
                 texte_etiquette = texte_etiquette.replace("^XZ", f"^PQ{labels_per_colis}^XZ")
             
             zpl_final_global += texte_etiquette + "\n"
 
-            # Préparation de l'enregistrement de traçabilité pour ce colis spécifique
             records_to_create.append(
                 ImpressionEtiquette(
                     code_poste=config.code_poste,
@@ -266,47 +270,40 @@ class PrintLabelAPIView(APIView):
                 )
             )
 
-        # Enregistrement groupé dans la base SQLite en une seule requête
         ImpressionEtiquette.objects.bulk_create(records_to_create)
         total_etiquettes_imprimees = colis_count * labels_per_colis
 
         # -----------------------------------------------------------------
-        # 4. ROUTAGE ET ENVOI À L'IMPRIMANTE
+        # 4. ROUTAGE ET ENVOI À L'IMPRIMANTE CIBLE
         # -----------------------------------------------------------------
 
-        # --- MODE A : DÉSACTIVÉ / TEST ---
         if config.mode_connexion == 'DESACTIVE':
-            print(f"\n--- 📝 [MODE TEST - {config.code_poste}] Flux ZPL généré ---")
-            print(zpl_final_global)
-            print("--------------------------------------------------\n")
             return Response({
                 "status": "success",
-                "message": f"[Mode Test - {config.code_poste}] {total_etiquettes_imprimees} étiquette(s) enregistrée(s) et simulée(s)."
+                "message": f"[Mode Test - {config.code_poste}] {total_etiquettes_imprimees} étiquette(s) simulée(s)."
             })
 
-        # --- MODE B : RÉSEAU (IP direct sur port 9100) ---
         elif config.mode_connexion == 'RESEAU':
             if not config.adresse_ip:
                 return Response({
-                    "error": f"Adresse IP non configurée pour le poste '{config.code_poste}' dans l'admin"
+                    "error": f"Adresse IP non configurée pour le poste '{config.code_poste}'"
                 }, status=status.HTTP_400_BAD_REQUEST)
             try:
                 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 s.settimeout(5)
-                s.connect((config.adresse_ip, config.port_reseau))
+                s.connect((config.adresse_ip, config.port_reseau or 9100))
                 s.sendall(zpl_final_global.encode('utf-8'))
                 s.close()
                 return Response({
                     "status": "success",
-                    "message": f"Flux envoyé en réseau au poste {config.code_poste} ({config.adresse_ip})."
+                    "message": f"Flux envoyé à {config.nom_emplacement or config.code_poste} ({config.adresse_ip})."
                 })
             except Exception as e:
                 return Response({
                     "status": "error",
-                    "message": f"Impossible de joindre l'imprimante sur le réseau ({config.adresse_ip}:{config.port_reseau}) : {str(e)}"
+                    "message": f"Impossible de joindre l'imprimante ({config.adresse_ip}:{config.port_reseau}) : {str(e)}"
                 }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        # --- MODE C : USB LOCAL (Windows Spooler) ---
         elif config.mode_connexion == 'USB':
             if not win32print:
                 return Response({

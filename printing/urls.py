@@ -1,13 +1,14 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 # On ajoute ClientViewSet dans les imports depuis .views
-from .views import CategoryViewSet, LabelTemplateViewSet, ProductViewSet, ClientViewSet, PrintLabelAPIView
+from .views import CategoryViewSet, LabelTemplateViewSet, ProductViewSet, ClientViewSet, PrintLabelAPIView, ConfigurationImprimanteViewSet
 
 router = DefaultRouter()
 router.register(r'products', ProductViewSet)
 router.register(r'categories', CategoryViewSet)
 router.register(r'templates', LabelTemplateViewSet)
 router.register(r'clients', ClientViewSet) # <-- La ligne magique manquante !
+router.register(r'printers', ConfigurationImprimanteViewSet)
 
 urlpatterns = [
     path('', include(router.urls)),
