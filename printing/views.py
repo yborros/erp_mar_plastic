@@ -5,16 +5,17 @@ import datetime
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import viewsets, status
-from rest_framework.serializers import ModelSerializer
 from dotenv import load_dotenv
 
 from .models import (
     Category, LabelTemplate, Product, ConfigurationImprimante, 
     Client, ImpressionEtiquette
 )
-from .serializers import CategorySerializer, LabelTemplateSerializer, ProductSerializer
+from .serializers import (
+    CategorySerializer, LabelTemplateSerializer, ProductSerializer,
+    ClientSerializer, ConfigurationImprimanteSerializer, ImpressionEtiquetteSerializer
+)
 
-# Chargement du fichier .env au démarrage du serveur
 load_dotenv()
 
 # =================================================================
@@ -50,31 +51,16 @@ class ProductViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Product.objects.all()
     serializer_class = ProductSerializer
 
-class ClientSerializer(ModelSerializer):
-    class Meta:
-        model = Client
-        fields = ['id', 'nom', 'numero_client']
-
 class ClientViewSet(viewsets.ModelViewSet):
     queryset = Client.objects.all().order_by('nom')
     serializer_class = ClientSerializer
-
-class ConfigurationImprimanteSerializer(ModelSerializer):
-    class Meta:
-        model = ConfigurationImprimante
-        fields = '__all__'
 
 class ConfigurationImprimanteViewSet(viewsets.ModelViewSet):
     queryset = ConfigurationImprimante.objects.all()
     serializer_class = ConfigurationImprimanteSerializer
 
-class ImpressionEtiquetteSerializer(ModelSerializer):
-    class Meta:
-        model = ImpressionEtiquette
-        fields = '__all__'
-
 class ImpressionEtiquetteViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = ImpressionEtiquette.objects.all()
+    queryset = ImpressionEtiquette.objects.all().order_by('-id')
     serializer_class = ImpressionEtiquetteSerializer
 
 
@@ -115,8 +101,15 @@ class PrintLabelAPIView(APIView):
         poids_net = request.data.get('poids_net', '')
         poids_brut = request.data.get('poids_brut', '')
 
-        colis_count = int(request.data.get('colis_count', 1))
-        labels_per_colis = int(request.data.get('labels_per_colis', 1))
+        try:
+            colis_count = int(request.data.get('colis_count', 1))
+        except (ValueError, TypeError):
+            colis_count = 1
+
+        try:
+            labels_per_colis = int(request.data.get('labels_per_colis', 1))
+        except (ValueError, TypeError):
+            labels_per_colis = 1
         
         # -----------------------------------------------------------------
         # 1. IDENTIFICATION DE L'IMPRIMANTE / CONFIGURATION
@@ -126,28 +119,22 @@ class PrintLabelAPIView(APIView):
 
         config = None
 
-        # Priorité au choix explicite depuis le sélecteur (Power User / Laptop)
         if printer_id:
             config = ConfigurationImprimante.objects.filter(id=printer_id).first()
 
-        # Recherche par code_poste explicite
         if not config and code_du_poste:
             config = ConfigurationImprimante.objects.filter(code_poste=code_du_poste).first()
 
-        # Détection automatique par IP client
         if not config:
             config = ConfigurationImprimante.objects.filter(adresse_ip=client_ip).first()
 
-        # Fallback pour le serveur local
         if not config and client_ip in ['127.0.0.1', '::1', 'localhost']:
             env_code = os.environ.get('IDENTIFIANT_POSTE', 'PC_BUREAU')
             config = ConfigurationImprimante.objects.filter(code_poste=env_code).first()
 
-        # Repli sur la première imprimante réseau
         if not config:
             config = ConfigurationImprimante.objects.filter(mode_connexion='RESEAU').first()
 
-        # Repli absolu sur la première configuration existante
         if not config:
             config = ConfigurationImprimante.objects.first()
 
@@ -156,7 +143,7 @@ class PrintLabelAPIView(APIView):
                 "error": f"Poste non reconnu pour l'IP '{client_ip}'. Créez une configuration dans l'admin Django."
             }, status=status.HTTP_400_BAD_REQUEST)
 
-        print(f"🖨️ [Impression] Reçue de l'IP {client_ip} -> Imprimante: {config.code_poste} ({config.adresse_ip})")
+        print(f"🖨️ [Impression] IP {client_ip} -> Imprimante: {config.code_poste} ({config.adresse_ip})")
 
         # -----------------------------------------------------------------
         # 2. RÉCUPÉRATION DU PRODUIT ET DU TEMPLATE ZPL
@@ -221,10 +208,16 @@ class PrintLabelAPIView(APIView):
 
         lot_commun = f"{prefixe_poste}-{today_str}"
 
-        tirages_jour_poste = ImpressionEtiquette.objects.filter(
-            code_poste=config.code_poste,
-            date_impression__date=today_date
-        ).count()
+        # Comptage du jour pour le poste
+        try:
+            tirages_jour_poste = ImpressionEtiquette.objects.filter(
+                code_poste=config.code_poste,
+                date_impression__date=today_date
+            ).count()
+        except Exception:
+            tirages_jour_poste = ImpressionEtiquette.objects.filter(
+                code_poste=config.code_poste
+            ).count()
 
         dest_val = client_name if client_name else (destination if destination else "")
 
@@ -236,7 +229,6 @@ class PrintLabelAPIView(APIView):
 
             texte_etiquette = zpl_template
             
-            # Remplacement des balises standard
             texte_etiquette = texte_etiquette.replace("{NAME}", str(product_name))
             texte_etiquette = texte_etiquette.replace("{SKU}", str(sku_display))
             texte_etiquette = texte_etiquette.replace("{LOT}", code_colis_unique)
@@ -250,7 +242,6 @@ class PrintLabelAPIView(APIView):
             texte_etiquette = texte_etiquette.replace("{CLIENT_NAME}", str(client_name) if client_name else "")
             texte_etiquette = texte_etiquette.replace("{CLIENT_NUM}", str(client_num) if client_num else "")
             
-            # Balises Carton
             texte_etiquette = texte_etiquette.replace("{TYPE_DETAILS}", str(type_details or ''))
             texte_etiquette = texte_etiquette.replace("{QTY_DETAILS}", str(qty_details or ''))
             texte_etiquette = texte_etiquette.replace("{DESTINATION}", str(dest_val or '').upper())
@@ -262,7 +253,6 @@ class PrintLabelAPIView(APIView):
             
             zpl_final_global += texte_etiquette + "\n"
 
-        # Préparation de la trace (sans insertion immédiate)
         total_etiquettes_imprimees = colis_count * labels_per_colis
         client_obj = Client.objects.filter(nom__iexact=client_name).first() if client_name else None
 
@@ -289,7 +279,6 @@ class PrintLabelAPIView(APIView):
         # 4. ENVOI PHYSIQUE & VALIDATION DE L'HISTORIQUE
         # -----------------------------------------------------------------
 
-        # MODE TEST
         if config.mode_connexion == 'DESACTIVE':
             enregistrer_historique()
             return Response({
@@ -297,7 +286,6 @@ class PrintLabelAPIView(APIView):
                 "message": f"[Mode Test - {config.code_poste}] {total_etiquettes_imprimees} étiquette(s) enregistrée(s)."
             })
 
-        # MODE RÉSEAU DIRECT (SOCKET ETHERNET / WIFI)
         elif config.mode_connexion == 'RESEAU':
             if not config.adresse_ip:
                 return Response({
@@ -310,7 +298,6 @@ class PrintLabelAPIView(APIView):
                 s.sendall(zpl_final_global.encode('utf-8'))
                 s.close()
 
-                # Enregistrement conditionné au succès réseau
                 enregistrer_historique()
 
                 return Response({
@@ -318,13 +305,11 @@ class PrintLabelAPIView(APIView):
                     "message": f"Flux envoyé avec succès à {config.nom_emplacement or config.code_poste} ({config.adresse_ip})."
                 })
             except Exception as e:
-                # Échec : aucune ligne créée dans l'historique
                 return Response({
                     "status": "error",
                     "message": f"Imprimante hors ligne ou injoignable ({config.adresse_ip}:{config.port_reseau or 9100}) : {str(e)}"
                 }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        # MODE USB LOCAL
         elif config.mode_connexion == 'USB':
             if not win32print:
                 return Response({

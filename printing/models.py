@@ -51,10 +51,14 @@ class LabelTemplate(models.Model):
 
 
 class AttributeDefinition(models.Model):
+    """
+    Définition d'une caractéristique technique avec contrôle strict du type de saisie.
+    """
     DATA_TYPE_CHOICES = [
         ('NUMBER', 'Nombre décimal ou entier (ex: 50, 42.5)'),
         ('INTEGER', 'Nombre entier strict (ex: 500, 12)'),
-        ('TEXT', 'Texte libre (ex: Transparent, PEBD)'),
+        ('CHOICE', 'Liste déroulante / Choix fermé (défini dans options)'),
+        ('TEXT', 'Texte libre'),
         ('BOOLEAN', 'Oui / Non'),
     ]
 
@@ -71,12 +75,30 @@ class AttributeDefinition(models.Model):
         default='NUMBER', 
         verbose_name="Type de donnée"
     )
-    unit = models.CharField(max_length=20, blank=True, null=True, verbose_name="Unité (ex: cm, µm, mm, kg)")
+    unit = models.CharField(
+        max_length=20, 
+        blank=True, 
+        null=True, 
+        verbose_name="Unité (ex: cm, µm, mm, kg)"
+    )
+    options = models.CharField(
+        max_length=500, 
+        blank=True, 
+        null=True, 
+        help_text="Pour les listes de choix, séparez par des virgules (ex: PEBD, PEHD, PP, CPP)",
+        verbose_name="Options autorisées"
+    )
 
     class Meta:
         verbose_name = "Définition de caractéristique"
         verbose_name_plural = "Définitions de caractéristiques"
         unique_together = ('category', 'name')
+
+    def get_options_list(self):
+        """Retourne la liste propre des choix découpés par virgule."""
+        if not self.options:
+            return []
+        return [opt.strip() for opt in self.options.split(',') if opt.strip()]
 
     def __str__(self):
         unit_str = f" [{self.unit}]" if self.unit else ""
@@ -171,44 +193,53 @@ class ProductAttributeValue(models.Model):
         unique_together = ('product', 'attribute')
 
     def clean(self):
-        """
-        Validation stricte avant sauvegarde dans la base de données.
-        Empêche toute valeur invalide d'être validée par l'admin ou par l'API.
-        """
+        """Validation stricte selon le type de donnée."""
         if not self.valeur:
             return
 
-        val = self.valeur.strip().replace(',', '.')  # Tolère la virgule en la convertissant en point
+        val = self.valeur.strip()
         dtype = self.attribute.data_type
 
         if dtype == 'NUMBER':
+            val_clean = val.replace(',', '.')
             try:
-                float(val)
-                self.valeur = val  # Enregistre le format normalisé avec un point
+                float(val_clean)
+                self.valeur = val_clean
             except ValueError:
                 raise ValidationError({
-                    'valeur': f"Pour '{self.attribute.name}', vous devez renseigner un nombre valide (ex: 45 ou 45.5)."
+                    'valeur': f"Pour '{self.attribute.name}', entrez un nombre valide (ex: 45 ou 45.5)."
                 })
 
         elif dtype == 'INTEGER':
             if not re.match(r'^-?\d+$', val):
                 raise ValidationError({
-                    'valeur': f"Pour '{self.attribute.name}', vous devez renseigner un nombre entier sans décimale (ex: 200)."
+                    'valeur': f"Pour '{self.attribute.name}', entrez un nombre entier sans décimale."
+                })
+
+        elif dtype == 'CHOICE':
+            allowed = self.attribute.get_options_list()
+            # Vérification insensible à la casse
+            matched = next((opt for opt in allowed if opt.lower() == val.lower()), None)
+            if matched:
+                self.valeur = matched  # Enregistre avec la casse standardisée
+            else:
+                options_str = ", ".join(allowed)
+                raise ValidationError({
+                    'valeur': f"Valeur invalide pour '{self.attribute.name}'. Choix possibles : {options_str}"
                 })
 
         elif dtype == 'BOOLEAN':
             if val.lower() not in ['true', 'false', '1', '0', 'oui', 'non', 'o', 'n']:
                 raise ValidationError({
-                    'valeur': f"Pour '{self.attribute.name}', répondez par 'Oui' ou 'Non'."
+                    'valeur': f"Pour '{self.attribute.name}', choisissez 'Oui' ou 'Non'."
                 })
 
     def save(self, *args, **kwargs):
-        self.full_clean()  # Force l'exécution du clean() même hors Django Admin
+        self.full_clean()
         super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.attribute.name}: {self.valeur}"
-
 
 class PrintJob(models.Model):
     product = models.ForeignKey(Product, on_delete=models.PROTECT)

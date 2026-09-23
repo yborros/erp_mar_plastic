@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from .models import (
-    Category, LabelTemplate, Product, ProductAttributeValue, 
+    Category, LabelTemplate, Product, 
+    AttributeDefinition, ProductAttributeValue, 
     ConfigurationImprimante, Client, ImpressionEtiquette
 )
 
@@ -20,14 +21,29 @@ class LabelTemplateSerializer(serializers.ModelSerializer):
         fields = ['id', 'name', 'zpl_code', 'category_ids', 'is_default']
 
 
+class AttributeDefinitionSerializer(serializers.ModelSerializer):
+    options_list = serializers.SerializerMethodField()
+
+    class Meta:
+        model = AttributeDefinition
+        fields = ['id', 'name', 'data_type', 'unit', 'options', 'options_list']
+
+    def get_options_list(self, obj):
+        return obj.get_options_list()
+
+
 class ProductAttributeValueSerializer(serializers.ModelSerializer):
     attribute_name = serializers.CharField(source='attribute.name', read_only=True)
     unit = serializers.CharField(source='attribute.unit', read_only=True)
     data_type = serializers.CharField(source='attribute.data_type', read_only=True)
+    options_list = serializers.SerializerMethodField()
 
     class Meta:
         model = ProductAttributeValue
-        fields = ['attribute_name', 'valeur', 'unit', 'data_type']
+        fields = ['attribute_name', 'valeur', 'unit', 'data_type', 'options_list']
+
+    def get_options_list(self, obj):
+        return obj.attribute.get_options_list()
 
 
 class ProductSerializer(serializers.ModelSerializer):
