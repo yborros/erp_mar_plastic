@@ -1,5 +1,7 @@
 from django.db import models
 from django.utils import timezone
+from django.core.exceptions import ValidationError
+import re
 
 
 class Category(models.Model):
@@ -49,18 +51,26 @@ class LabelTemplate(models.Model):
 
 
 class AttributeDefinition(models.Model):
-    """
-    Définition des caractéristiques techniques propres à chaque catégorie.
-    Ex pour 'Bobines' : Laize (cm), Épaisseur (µm), Matière (PE/PP).
-    Ex pour 'Sachets' : Largeur (mm), Hauteur (mm), Soufflet (mm).
-    """
+    DATA_TYPE_CHOICES = [
+        ('NUMBER', 'Nombre décimal ou entier (ex: 50, 42.5)'),
+        ('INTEGER', 'Nombre entier strict (ex: 500, 12)'),
+        ('TEXT', 'Texte libre (ex: Transparent, PEBD)'),
+        ('BOOLEAN', 'Oui / Non'),
+    ]
+
     category = models.ForeignKey(
         Category, 
         on_delete=models.CASCADE, 
         related_name='attribute_definitions',
         verbose_name="Catégorie"
     )
-    name = models.CharField(max_length=100, verbose_name="Caractéristique")
+    name = models.CharField(max_length=100, verbose_name="Nom de la caractéristique")
+    data_type = models.CharField(
+        max_length=20, 
+        choices=DATA_TYPE_CHOICES, 
+        default='NUMBER', 
+        verbose_name="Type de donnée"
+    )
     unit = models.CharField(max_length=20, blank=True, null=True, verbose_name="Unité (ex: cm, µm, mm, kg)")
 
     class Meta:
@@ -69,9 +79,9 @@ class AttributeDefinition(models.Model):
         unique_together = ('category', 'name')
 
     def __str__(self):
-        return f"{self.name} ({self.unit})" if self.unit else self.name
-
-
+        unit_str = f" [{self.unit}]" if self.unit else ""
+        return f"{self.name}{unit_str} ({self.get_data_type_display()})"
+    
 class Client(models.Model):
     nom = models.CharField(max_length=100, unique=True)
     numero_client = models.CharField(max_length=50, unique=True, verbose_name="Numéro de client")
@@ -142,7 +152,6 @@ class Product(models.Model):
 
 
 class ProductAttributeValue(models.Model):
-    """Valeur réelle saisie pour chaque caractéristique sur la fiche produit."""
     product = models.ForeignKey(
         Product, 
         on_delete=models.CASCADE, 
@@ -160,6 +169,42 @@ class ProductAttributeValue(models.Model):
         verbose_name = "Caractéristique du produit"
         verbose_name_plural = "Caractéristiques du produit"
         unique_together = ('product', 'attribute')
+
+    def clean(self):
+        """
+        Validation stricte avant sauvegarde dans la base de données.
+        Empêche toute valeur invalide d'être validée par l'admin ou par l'API.
+        """
+        if not self.valeur:
+            return
+
+        val = self.valeur.strip().replace(',', '.')  # Tolère la virgule en la convertissant en point
+        dtype = self.attribute.data_type
+
+        if dtype == 'NUMBER':
+            try:
+                float(val)
+                self.valeur = val  # Enregistre le format normalisé avec un point
+            except ValueError:
+                raise ValidationError({
+                    'valeur': f"Pour '{self.attribute.name}', vous devez renseigner un nombre valide (ex: 45 ou 45.5)."
+                })
+
+        elif dtype == 'INTEGER':
+            if not re.match(r'^-?\d+$', val):
+                raise ValidationError({
+                    'valeur': f"Pour '{self.attribute.name}', vous devez renseigner un nombre entier sans décimale (ex: 200)."
+                })
+
+        elif dtype == 'BOOLEAN':
+            if val.lower() not in ['true', 'false', '1', '0', 'oui', 'non', 'o', 'n']:
+                raise ValidationError({
+                    'valeur': f"Pour '{self.attribute.name}', répondez par 'Oui' ou 'Non'."
+                })
+
+    def save(self, *args, **kwargs):
+        self.full_clean()  # Force l'exécution du clean() même hors Django Admin
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.attribute.name}: {self.valeur}"

@@ -23,10 +23,11 @@ class LabelTemplateSerializer(serializers.ModelSerializer):
 class ProductAttributeValueSerializer(serializers.ModelSerializer):
     attribute_name = serializers.CharField(source='attribute.name', read_only=True)
     unit = serializers.CharField(source='attribute.unit', read_only=True)
+    data_type = serializers.CharField(source='attribute.data_type', read_only=True)
 
     class Meta:
         model = ProductAttributeValue
-        fields = ['attribute_name', 'valeur', 'unit']
+        fields = ['attribute_name', 'valeur', 'unit', 'data_type']
 
 
 class ProductSerializer(serializers.ModelSerializer):
