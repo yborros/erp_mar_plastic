@@ -59,14 +59,14 @@ class ClientViewSet(viewsets.ModelViewSet):
     serializer_class = ClientSerializer
 
 
-# Serializer et ViewSet pour l'historique des impressions
+# Serializer et ViewSet pour l'historique des impressions (Traçabilité)
 class ImpressionEtiquetteSerializer(ModelSerializer):
     class Meta:
         model = ImpressionEtiquette
         fields = '__all__'
 
 class ImpressionEtiquetteViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = ImpressionEtiquette.objects.all()
+    queryset = ImpressionEtiquette.objects.all().order_by('-date_impression')
     serializer_class = ImpressionEtiquetteSerializer
 
 
@@ -81,7 +81,7 @@ except ImportError:
 
 
 # =================================================================
-# 3. API D'IMPRESSION DES ÉTIQUETTES (DÉTECTION IP & TRAÇABILITÉ)
+# 3. API D'IMPRESSION DES ÉTIQUETTES (TRAÇABILITÉ UNITAIRE & ROUTAGE)
 # =================================================================
 
 class PrintLabelAPIView(APIView):
@@ -93,7 +93,7 @@ class PrintLabelAPIView(APIView):
         client_num = request.data.get('client_num', '')
         value = request.data.get('value', '')
         
-        # Données de la saisie volante (Bobine / Extrusion)
+        # Données de saisie directe (Bobine / Extrusion)
         custom_name = request.data.get('custom_name', 'GAINE PEBD NEUTRE')
         laize = request.data.get('laize', '')
         micron = request.data.get('micron', '')
@@ -130,8 +130,7 @@ class PrintLabelAPIView(APIView):
             env_code = os.environ.get('IDENTIFIANT_POSTE', 'PC_BUREAU')
             config = ConfigurationImprimante.objects.filter(code_poste=env_code).first()
 
-        # D) REPLI AUTOMATIQUE RÉSEAU : Si l'IP client n'est pas reconnue,
-        #    on sélectionne la première imprimante configurée en mode RÉSEAU
+        # D) Repli automatique réseau : si l'IP client n'est pas reconnue
         if not config:
             config = ConfigurationImprimante.objects.filter(mode_connexion='RESEAU').first()
 
@@ -149,10 +148,10 @@ class PrintLabelAPIView(APIView):
         # -----------------------------------------------------------------
         # 2. RÉCUPÉRATION DU PRODUIT ET DU TEMPLATE ZPL
         # -----------------------------------------------------------------
-        template_id = request.data.get('template_id')  # <--- ID du modèle sélectionné dans le menu déroulant
+        template_id = request.data.get('template_id')
         zpl_template = None
 
-        # A) Si un modèle spécifique est sélectionné dans le menu déroulant
+        # A) Modèle spécifique sélectionné dans le menu déroulant
         if template_id:
             try:
                 template_selected = LabelTemplate.objects.get(id=template_id)
@@ -168,7 +167,7 @@ class PrintLabelAPIView(APIView):
                 sku_display = product_obj.sku
                 unit_str = product_obj.unit.abbreviation if product_obj.unit else "U"
 
-                # Si aucun modèle explicite n'a été choisi dans le menu déroulant, on utilise le template du produit/catégorie
+                # Si aucun modèle explicite n'a été choisi dans le menu déroulant
                 if not zpl_template:
                     if product_obj.custom_template:
                         zpl_template = product_obj.custom_template.zpl_code
@@ -183,7 +182,7 @@ class PrintLabelAPIView(APIView):
             product_name = custom_name
             sku_display = f"BOB-{laize}-{micron}MIC" if laize and micron else "FAB-DIRECTE"
             
-            # Si aucun modèle explicite n'a été choisi dans le menu déroulant, on cherche un modèle "Bobine"
+            # Recherche d'un modèle "Bobine" si aucun template n'est précisé
             if not zpl_template:
                 template_bobine = LabelTemplate.objects.filter(name__icontains="Bobine").first()
                 if not template_bobine:
@@ -196,22 +195,26 @@ class PrintLabelAPIView(APIView):
             return Response({"error": "Aucun modèle d'étiquette ZPL valide n'a pu être chargé."}, status=status.HTTP_400_BAD_REQUEST)
         
         # -----------------------------------------------------------------
-        # 3. CONSTRUCTION DE LA CHAÎNE ZPL
+        # 3. CONSTRUCTION ZPL & TRAÇABILITÉ UNITAIRE DES COLIS
         # -----------------------------------------------------------------
         zpl_final_global = ""
         now = datetime.datetime.now()
         today_str = now.strftime("%Y%m%d")
         timestamp_commande = now.strftime("%H%M%S")
 
-        # Détermination de la destination (Client ou saisie manuelle)
+        # Détermination de la destination
         dest_val = client_name if client_name else (destination if destination else "SUISSE")
+        client_obj = Client.objects.filter(nom__iexact=client_name).first() if client_name else None
+
+        records_to_create = []
 
         for i in range(colis_count):
-            lot_unique = f"SO-{today_str[2:]}-{timestamp_commande[-4:]}"
+            # Numéro de lot unitaire distinct par carton (ex: SO-260923-1430-1)
+            lot_unique = f"SO-{today_str[2:]}-{timestamp_commande[-4:]}-{i+1}"
             
             texte_etiquette = zpl_template
             
-            # --- Substitutions Standard ---
+            # --- Remplacements variables génériques ---
             texte_etiquette = texte_etiquette.replace("{NAME}", str(product_name))
             texte_etiquette = texte_etiquette.replace("{SKU}", str(sku_display))
             texte_etiquette = texte_etiquette.replace("{LOT}", lot_unique)
@@ -222,44 +225,53 @@ class PrintLabelAPIView(APIView):
             texte_etiquette = texte_etiquette.replace("{CLIENT_NAME}", str(client_name) if client_name else "")
             texte_etiquette = texte_etiquette.replace("{CLIENT_NUM}", str(client_num) if client_num else "")
             
-            # --- Substitutions spécifiques Étiquette Carton Expédition ---
+            # --- Remplacements spécifiques Carton / Expédition ---
             texte_etiquette = texte_etiquette.replace("{TYPE_DETAILS}", str(type_details))
             texte_etiquette = texte_etiquette.replace("{QTY_DETAILS}", str(qty_details))
             texte_etiquette = texte_etiquette.replace("{DESTINATION}", str(dest_val).upper())
             texte_etiquette = texte_etiquette.replace("{POIDS_NET}", str(poids_net))
             texte_etiquette = texte_etiquette.replace("{POIDS_BRUT}", str(poids_brut))
             
+            # Gestion du tirage multiple par colis
             if labels_per_colis > 1:
                 texte_etiquette = texte_etiquette.replace("^XZ", f"^PQ{labels_per_colis}^XZ")
             
             zpl_final_global += texte_etiquette + "\n"
 
-        # -----------------------------------------------------------------
-        # 4. ENREGISTREMENT DANS L'HISTORIQUE DE PRODUCTION (TRAÇABILITÉ)
-        # -----------------------------------------------------------------
+            # Préparation de l'enregistrement de traçabilité pour ce colis spécifique
+            records_to_create.append(
+                ImpressionEtiquette(
+                    code_poste=config.code_poste,
+                    ip_client=client_ip,
+                    numero_lot=lot_unique,
+                    colis_index=i + 1,
+                    colis_total=colis_count,
+                    produit_nom=product_name,
+                    sku=sku_display,
+                    client_nom=client_name,
+                    destination=str(dest_val).upper(),
+                    laize=str(laize) if laize else None,
+                    micron=str(micron) if micron else None,
+                    quantite_valeur=str(value) if value else None,
+                    unite=str(unit_str),
+                    type_details=str(type_details) if type_details else None,
+                    qty_details=str(qty_details) if qty_details else None,
+                    poids_net=str(poids_net) if poids_net else None,
+                    poids_brut=str(poids_brut) if poids_brut else None,
+                    labels_per_colis=labels_per_colis,
+                    total_etiquettes=labels_per_colis,
+                    zpl_genere=texte_etiquette,
+                    product=product_obj,
+                    client=client_obj
+                )
+            )
+
+        # Enregistrement groupé dans la base SQLite en une seule requête
+        ImpressionEtiquette.objects.bulk_create(records_to_create)
         total_etiquettes_imprimees = colis_count * labels_per_colis
-        client_obj = Client.objects.filter(nom__iexact=client_name).first() if client_name else None
-
-        ImpressionEtiquette.objects.create(
-            code_poste=config.code_poste,
-            ip_client=client_ip,
-            produit_nom=product_name,
-            sku=sku_display,
-            client_nom=client_name,
-            laize=str(laize) if laize else None,
-            micron=str(micron) if micron else None,
-            quantite_valeur=str(value),
-            unite=str(unit_str),
-            colis_count=colis_count,
-            labels_per_colis=labels_per_colis,
-            total_etiquettes=total_etiquettes_imprimees,
-            zpl_genere=zpl_final_global,
-            product=product_obj,
-            client=client_obj
-        )
 
         # -----------------------------------------------------------------
-        # 5. ROUTAGE ET ENVOI À L'IMPRIMANTE
+        # 4. ROUTAGE ET ENVOI À L'IMPRIMANTE
         # -----------------------------------------------------------------
 
         # --- MODE A : DÉSACTIVÉ / TEST ---
@@ -275,7 +287,9 @@ class PrintLabelAPIView(APIView):
         # --- MODE B : RÉSEAU (IP direct sur port 9100) ---
         elif config.mode_connexion == 'RESEAU':
             if not config.adresse_ip:
-                return Response({"error": f"Adresse IP non configurée pour le poste '{config.code_poste}' dans l'admin"}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({
+                    "error": f"Adresse IP non configurée pour le poste '{config.code_poste}' dans l'admin"
+                }, status=status.HTTP_400_BAD_REQUEST)
             try:
                 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 s.settimeout(5)

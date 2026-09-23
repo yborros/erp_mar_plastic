@@ -40,7 +40,16 @@ class ClientAdmin(admin.ModelAdmin):
 
 @admin.register(ImpressionEtiquette)
 class ImpressionEtiquetteAdmin(admin.ModelAdmin):
-    list_display = ('date_impression', 'code_poste', 'produit_nom', 'client_nom', 'quantite_valeur', 'unite', 'total_etiquettes', 'ip_client')
-    list_filter = ('code_poste', 'date_impression', 'unite')
-    search_fields = ('produit_nom', 'sku', 'client_nom', 'code_poste')
+    list_display = (
+        'numero_lot', 'colis_display', 'date_impression', 
+        'produit_nom', 'client_nom', 'destination', 
+        'poids_net', 'poids_brut', 'code_poste'
+    )
+    list_filter = ('code_poste', 'destination', 'date_impression', 'unite')
+    search_fields = ('numero_lot', 'produit_nom', 'sku', 'client_nom')
     readonly_fields = ('date_impression', 'zpl_genere')
+    date_hierarchy = 'date_impression'
+
+    def colis_display(self, obj):
+        return f"{obj.colis_index} / {obj.colis_total}"
+    colis_display.short_description = "Colis"

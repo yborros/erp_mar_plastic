@@ -163,31 +163,42 @@ class ConfigurationImprimante(models.Model):
     def __str__(self):
         return f"{self.nom_emplacement} ({self.code_poste}) -> Client:{self.ip_poste_client} | Pi:{self.adresse_ip}"
 class ImpressionEtiquette(models.Model):
-    """ Historique complet des tirages d'étiquettes en usine (Traçabilité) """
+    """ Historique complet et traçabilité unitaire des tirages d'étiquettes """
     date_impression = models.DateTimeField(auto_now_add=True, verbose_name="Date & Heure")
-    code_poste = models.CharField(max_length=50, verbose_name="Code Poste / Machine")
+    code_poste = models.CharField(max_length=50, verbose_name="Code Poste")
     ip_client = models.GenericIPAddressField(null=True, blank=True, verbose_name="IP Utilisateur")
     
-    # Informations Produit / Client
+    # --- Identifiants de Lot & Colis ---
+    numero_lot = models.CharField(max_length=100, db_index=True, default="", verbose_name="N° de Lot")
+    colis_index = models.IntegerField(default=1, verbose_name="Colis N°")
+    colis_total = models.IntegerField(default=1, verbose_name="Total Colis")
+    
+    # --- Informations Produit / Client / Destination ---
     produit_nom = models.CharField(max_length=255, verbose_name="Désignation Produit")
     sku = models.CharField(max_length=100, blank=True, null=True, verbose_name="SKU / Réf")
     client_nom = models.CharField(max_length=255, blank=True, null=True, verbose_name="Nom Client")
+    destination = models.CharField(max_length=100, blank=True, null=True, verbose_name="Destination")
     
-    # Données techniques spécifiques (Plastique / Bobines / Sachets)
+    # --- Caractéristiques Techniques (Bobines / Sachets) ---
     laize = models.CharField(max_length=20, blank=True, null=True, verbose_name="Laize (cm)")
     micron = models.CharField(max_length=20, blank=True, null=True, verbose_name="Épaisseur (µm)")
-    quantite_valeur = models.CharField(max_length=50, verbose_name="Valeur (Poids / Pcs)")
+    quantite_valeur = models.CharField(max_length=50, blank=True, null=True, verbose_name="Valeur (Poids / Pcs)")
     unite = models.CharField(max_length=20, default="Kg", verbose_name="Unité")
     
-    # Détail de tirage
-    colis_count = models.IntegerField(default=1, verbose_name="Nombre de Colis/Cartons")
+    # --- Données Spécifiques Carton / Expédition ---
+    type_details = models.CharField(max_length=100, blank=True, null=True, verbose_name="Détail Type")
+    qty_details = models.CharField(max_length=100, blank=True, null=True, verbose_name="Détail Qté/Pièces")
+    poids_net = models.CharField(max_length=50, blank=True, null=True, verbose_name="Poids Net")
+    poids_brut = models.CharField(max_length=50, blank=True, null=True, verbose_name="Poids Brut")
+
+    # --- Quantités d'étiquettes ---
     labels_per_colis = models.IntegerField(default=1, verbose_name="Étiquettes par Colis")
     total_etiquettes = models.IntegerField(default=1, verbose_name="Total Étiquettes Imprimées")
 
-    # Code ZPL brut conservé pour réimpression à l'identique
+    # --- Code ZPL brut conservé pour réimpression à l'identique ---
     zpl_genere = models.TextField(blank=True, null=True, verbose_name="Code ZPL Généré")
 
-    # Relations optionnelles vers la base si besoin de filtres croisés
+    # --- Relations optionnelles ---
     product = models.ForeignKey(Product, on_delete=models.SET_NULL, null=True, blank=True, related_name="historique_impressions")
     client = models.ForeignKey(Client, on_delete=models.SET_NULL, null=True, blank=True, related_name="historique_impressions")
 
@@ -197,4 +208,4 @@ class ImpressionEtiquette(models.Model):
         ordering = ['-date_impression']
 
     def __str__(self):
-        return f"[{self.date_impression.strftime('%d/%m/%Y %H:%M')}] {self.produit_nom} ({self.total_etiquettes} ex.)"
+        return f"[{self.numero_lot}] {self.produit_nom} (Colis {self.colis_index}/{self.colis_total})"
