@@ -2,10 +2,43 @@ from django.db import models
 from django.utils import timezone
 
 
+class Category(models.Model):
+    """Ex: 'Sachets', 'Bobines', 'Mandrins', 'Cartons Expédition'"""
+    name = models.CharField(max_length=100, unique=True, verbose_name="Nom de la catégorie")
+    description = models.TextField(blank=True, null=True, verbose_name="Description")
+
+    # Template d'impression par défaut pour cette famille
+    default_template = models.ForeignKey(
+        'LabelTemplate', 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True, 
+        related_name="default_for_categories",
+        verbose_name="Template d'impression par défaut"
+    )
+
+    def __str__(self):
+        return self.name
+    
+    class Meta:
+        verbose_name = "Catégorie"
+        verbose_name_plural = "Catégories"
+
+
 class LabelTemplate(models.Model):
     """Les fichiers de code ZPL pour l'imprimante Zebra"""
     name = models.CharField(max_length=100, unique=True, verbose_name="Nom du modèle")
+    
+    # 🔹 Liaison ManyToMany : permet d'affecter ce modèle à 1 ou plusieurs catégories
+    categories = models.ManyToManyField(
+        Category,
+        related_name="label_templates",
+        blank=True,
+        verbose_name="Catégories compatibles"
+    )
+    
     zpl_code = models.TextField(verbose_name="Code ZPL")
+    is_default = models.BooleanField(default=False, verbose_name="Modèle par défaut global")
     
     def __str__(self):
         return self.name
@@ -15,13 +48,40 @@ class LabelTemplate(models.Model):
         verbose_name_plural = "Modèles d'étiquettes"
 
 
+class AttributeDefinition(models.Model):
+    """
+    Définition des caractéristiques techniques propres à chaque catégorie.
+    Ex pour 'Bobines' : Laize (cm), Épaisseur (µm), Matière (PE/PP).
+    Ex pour 'Sachets' : Largeur (mm), Hauteur (mm), Soufflet (mm).
+    """
+    category = models.ForeignKey(
+        Category, 
+        on_delete=models.CASCADE, 
+        related_name='attribute_definitions',
+        verbose_name="Catégorie"
+    )
+    name = models.CharField(max_length=100, verbose_name="Caractéristique")
+    unit = models.CharField(max_length=20, blank=True, null=True, verbose_name="Unité (ex: cm, µm, mm, kg)")
+
+    class Meta:
+        verbose_name = "Définition de caractéristique"
+        verbose_name_plural = "Définitions de caractéristiques"
+        unique_together = ('category', 'name')
+
+    def __str__(self):
+        return f"{self.name} ({self.unit})" if self.unit else self.name
+
+
 class Client(models.Model):
     nom = models.CharField(max_length=100, unique=True)
     numero_client = models.CharField(max_length=50, unique=True, verbose_name="Numéro de client")
-    # data_sup = models.JSONField(blank=True, null=True)
 
     def __str__(self):
         return f"{self.numero_client} - {self.nom}"
+
+    class Meta:
+        verbose_name = "Client"
+        verbose_name_plural = "Clients"
 
 
 class Unit(models.Model):
@@ -45,27 +105,6 @@ class Unit(models.Model):
         verbose_name_plural = "Unités"
 
 
-class Category(models.Model):
-    """Ex: 'Sachets', 'Bobines', 'Mandrins'"""
-    name = models.CharField(max_length=100, unique=True, verbose_name="Nom de la catégorie")
-    
-    default_template = models.ForeignKey(
-        LabelTemplate, 
-        on_delete=models.SET_NULL, 
-        null=True, 
-        blank=True, 
-        related_name="categories",
-        verbose_name="Template d'impression par défaut"
-    )
-
-    def __str__(self):
-        return self.name
-    
-    class Meta:
-        verbose_name = "Catégorie"
-        verbose_name_plural = "Catégories"
-
-
 class Workstation(models.Model):
     name = models.CharField(max_length=100, unique=True, verbose_name="Nom du poste")
     ip_address = models.GenericIPAddressField(blank=True, null=True)
@@ -82,7 +121,7 @@ class Workstation(models.Model):
 class Product(models.Model):
     name = models.CharField(max_length=200, verbose_name="Nom du produit")
     sku = models.CharField(max_length=100, unique=True, verbose_name="Référence / SKU")
-    category = models.ForeignKey(Category, on_delete=models.SET_NULL, null=True, verbose_name="Catégorie")
+    category = models.ForeignKey(Category, on_delete=models.SET_NULL, null=True, verbose_name="Catégorie", related_name="products")
     unit = models.ForeignKey(Unit, on_delete=models.PROTECT, verbose_name="Unité de mesure")
     
     custom_template = models.ForeignKey(
@@ -100,6 +139,30 @@ class Product(models.Model):
     class Meta:
         verbose_name = "Produit"
         verbose_name_plural = "Produits"
+
+
+class ProductAttributeValue(models.Model):
+    """Valeur réelle saisie pour chaque caractéristique sur la fiche produit."""
+    product = models.ForeignKey(
+        Product, 
+        on_delete=models.CASCADE, 
+        related_name='attribute_values',
+        verbose_name="Produit"
+    )
+    attribute = models.ForeignKey(
+        AttributeDefinition, 
+        on_delete=models.CASCADE, 
+        verbose_name="Caractéristique"
+    )
+    valeur = models.CharField(max_length=255, verbose_name="Valeur")
+
+    class Meta:
+        verbose_name = "Caractéristique du produit"
+        verbose_name_plural = "Caractéristiques du produit"
+        unique_together = ('product', 'attribute')
+
+    def __str__(self):
+        return f"{self.attribute.name}: {self.valeur}"
 
 
 class PrintJob(models.Model):
@@ -131,7 +194,6 @@ class ConfigurationImprimante(models.Model):
     )
     nom_emplacement = models.CharField(max_length=100, help_text="Ex: Bureau de Yaniv, Ligne Extrusion 1")
     
-    # 🔹 NOUVEAU : IP du poste client (navigateur web React)
     ip_poste_client = models.GenericIPAddressField(
         blank=True, null=True, 
         verbose_name="IP Poste Client (Navigateur)",
@@ -140,7 +202,6 @@ class ConfigurationImprimante(models.Model):
 
     mode_connexion = models.CharField(max_length=15, choices=MODE_CHOICES, default='RESEAU')
     
-    # Paramètres USB
     nom_systeme_windows = models.CharField(
         max_length=255, 
         default="ZDesigner ZM400 200 dpi (ZPL)",
@@ -148,7 +209,6 @@ class ConfigurationImprimante(models.Model):
         help_text="Nom exact de l'imprimante sous Windows (requis si mode USB)"
     )
     
-    # 🔹 IP de destination (Raspberry Pi ou Imprimante réseau direct)
     adresse_ip = models.GenericIPAddressField(
         default="192.168.100.37", blank=True, null=True,
         verbose_name="IP Imprimante / Raspberry Pi",
@@ -162,6 +222,8 @@ class ConfigurationImprimante(models.Model):
 
     def __str__(self):
         return f"{self.nom_emplacement} ({self.code_poste}) -> Client:{self.ip_poste_client} | Pi:{self.adresse_ip}"
+
+
 class ImpressionEtiquette(models.Model):
     """ Historique complet et traçabilité unitaire des tirages d'étiquettes """
     date_impression = models.DateTimeField(auto_now_add=True, verbose_name="Date & Heure")
@@ -173,7 +235,7 @@ class ImpressionEtiquette(models.Model):
     colis_index = models.IntegerField(default=1, verbose_name="Colis N°")
     colis_total = models.IntegerField(default=1, verbose_name="Total Colis")
     
-    # --- Informations Produit / Client 
+    # --- Informations Produit / Client ---
     produit_nom = models.CharField(max_length=255, verbose_name="Désignation Produit")
     sku = models.CharField(max_length=100, blank=True, null=True, verbose_name="SKU / Réf")
     client_nom = models.CharField(max_length=255, blank=True, null=True, verbose_name="Nom Client")

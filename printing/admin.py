@@ -1,49 +1,103 @@
 from django.contrib import admin
-from .models import Unit, Category, Workstation, LabelTemplate, Product, PrintJob, ConfigurationImprimante, Client, ImpressionEtiquette
+from .models import (
+    Unit, Category, Workstation, LabelTemplate, AttributeDefinition,
+    Product, ProductAttributeValue, PrintJob, ConfigurationImprimante, 
+    Client, ImpressionEtiquette
+)
+
+# -----------------------------------------------------------------
+# 1. UNITÉS, CATÉGORIES & CARACTÉRISTIQUES
+# -----------------------------------------------------------------
 
 @admin.register(Unit)
 class UnitAdmin(admin.ModelAdmin):
     list_display = ('name', 'abbreviation', 'input_mode')
 
+
+class AttributeDefinitionInline(admin.TabularInline):
+    """Permet de définir les caractéristiques propres à la catégorie (ex: Laize, Épaisseur)."""
+    model = AttributeDefinition
+    extra = 2
+
+
 @admin.register(Category)
 class CategoryAdmin(admin.ModelAdmin):
-    list_display = ('name', 'default_template') # On affiche le template par défaut ici
+    list_display = ('name', 'default_template')
+    inlines = [AttributeDefinitionInline]
+
+
+# -----------------------------------------------------------------
+# 2. MODÈLES D'ÉTIQUETTES (ZPL)
+# -----------------------------------------------------------------
 
 @admin.register(LabelTemplate)
 class LabelTemplateAdmin(admin.ModelAdmin):
-    list_display = ('name',)
+    list_display = ('name', 'is_default')
+    list_filter = ('is_default', 'categories')
+    filter_horizontal = ('categories',)  # Sélecteur à deux colonnes pour associer les catégories
+
+
+# -----------------------------------------------------------------
+# 3. PRODUITS & VALEURS DES CARACTÉRISTIQUES
+# -----------------------------------------------------------------
+
+class ProductAttributeValueInline(admin.TabularInline):
+    """Tableau modifiable des caractéristiques directement dans la fiche Produit."""
+    model = ProductAttributeValue
+    extra = 1
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        """Filtre les caractéristiques affichées selon la catégorie du produit en cours d'édition."""
+        if db_field.name == "attribute" and request.resolver_match.kwargs.get('object_id'):
+            product_id = request.resolver_match.kwargs['object_id']
+            try:
+                product = Product.objects.get(pk=product_id)
+                kwargs["queryset"] = AttributeDefinition.objects.filter(category=product.category)
+            except Product.DoesNotExist:
+                pass
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+
+@admin.register(Product)
+class ProductAdmin(admin.ModelAdmin):
+    list_display = ('sku', 'name', 'category', 'unit')
+    list_filter = ('category',)
+    search_fields = ('sku', 'name')
+    fields = ('sku', 'name', 'category', 'unit', 'custom_template')
+    inlines = [ProductAttributeValueInline]
+
+
+# -----------------------------------------------------------------
+# 4. POSTES, CLIENTS & TÂCHES
+# -----------------------------------------------------------------
 
 @admin.register(Workstation)
 class WorkstationAdmin(admin.ModelAdmin):
     list_display = ('name', 'ip_address')
 
-@admin.register(Product)
-class ProductAdmin(admin.ModelAdmin):
-    list_display = ('sku', 'name', 'category', 'unit')
-    fields = ('sku', 'name', 'category', 'unit', 'custom_template') # 'custom_template' devient optionnel
+
+@admin.register(Client)
+class ClientAdmin(admin.ModelAdmin):
+    list_display = ('numero_client', 'nom')
+    search_fields = ('nom', 'numero_client')
+
 
 @admin.register(PrintJob)
 class PrintJobAdmin(admin.ModelAdmin):
     list_display = ('lot_number', 'product', 'timestamp')
 
+
 @admin.register(ConfigurationImprimante)
 class ConfigurationImprimanteAdmin(admin.ModelAdmin):
     list_display = ('code_poste', 'nom_emplacement', 'mode_connexion', 'nom_systeme_windows', 'adresse_ip')
 
-# =================================================================
-# ENREGISTREMENT DU MODÈLE CLIENT
-# =================================================================
-@admin.register(Client)
-class ClientAdmin(admin.ModelAdmin):
-    list_display = ('numero_client', 'nom') # Affiche le numéro et le nom dans la liste globale
-    search_fields = ('nom', 'numero_client') # Permet de chercher rapidement un client par son nom ou son code
 
-from django.contrib import admin
-from .models import ConfigurationImprimante, ImpressionEtiquette, Product, Client
+# -----------------------------------------------------------------
+# 5. HISTORIQUE D'IMPRESSION (TRAÇABILITÉ SÉCURISÉE EN LECTURE SEULE)
+# -----------------------------------------------------------------
 
 @admin.register(ImpressionEtiquette)
 class ImpressionEtiquetteAdmin(admin.ModelAdmin):
-    # Colonnes affichées dans la liste
     list_display = (
         'numero_lot',
         'colis_display',
@@ -54,36 +108,23 @@ class ImpressionEtiquetteAdmin(admin.ModelAdmin):
         'poids_brut',
         'code_poste',
     )
-
-    # Filtres latéraux pratiques
     list_filter = ('code_poste', 'date_impression', 'unite')
-
-    # Barre de recherche rapide
     search_fields = ('numero_lot', 'produit_nom', 'sku', 'client_nom')
-
-    # Tri par défaut : les plus récents en premier
     ordering = ('-date_impression',)
-
-    # Pagination par 100 lignes
     list_per_page = 100
 
-    # 1. Rendre TOUS les champs non modifiables lors de la consultation d'une ligne
     def get_readonly_fields(self, request, obj=None):
         return [f.name for f in self.model._meta.fields]
 
-    # 2. Supprimer le bouton "Ajouter impression étiquette" (+ Add)
     def has_add_permission(self, request):
         return False
 
-    # 3. Interdire l'enregistrement / modification (pas de bouton Sauvegarder)
     def has_change_permission(self, request, obj=None):
         return False
 
-    # 4. Interdire la suppression (supprime le bouton Supprimer et les actions de masse)
     def has_delete_permission(self, request, obj=None):
         return False
 
-    # Affichage personnalisé du colis (ex: Colis 2 / 5)
     @admin.display(description="Colis")
     def colis_display(self, obj):
         return f"{obj.colis_index} / {obj.colis_total}"

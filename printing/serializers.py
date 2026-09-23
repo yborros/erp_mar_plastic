@@ -1,36 +1,53 @@
 from rest_framework import serializers
-from .models import Category, LabelTemplate, Product, ConfigurationImprimante
+from .models import (
+    Category, LabelTemplate, Product, ProductAttributeValue, 
+    ConfigurationImprimante, Client, ImpressionEtiquette
+)
 
 class CategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = Category
         fields = '__all__'
 
+
 class LabelTemplateSerializer(serializers.ModelSerializer):
+    category_ids = serializers.PrimaryKeyRelatedField(
+        many=True, read_only=True, source='categories'
+    )
+
     class Meta:
         model = LabelTemplate
-        fields = '__all__'
+        fields = ['id', 'name', 'zpl_code', 'category_ids', 'is_default']
+
+
+class ProductAttributeValueSerializer(serializers.ModelSerializer):
+    attribute_name = serializers.CharField(source='attribute.name', read_only=True)
+    unit = serializers.CharField(source='attribute.unit', read_only=True)
+
+    class Meta:
+        model = ProductAttributeValue
+        fields = ['attribute_name', 'valeur', 'unit']
+
 
 class ProductSerializer(serializers.ModelSerializer):
     category_name = serializers.CharField(source='category.name', read_only=True)
     unit_symbol = serializers.CharField(source='unit.abbreviation', read_only=True, default='')
     input_mode = serializers.CharField(source='unit.input_mode', read_only=True, default='STANDARD')
-    
-    # On ajoute le champ dynamique pour récupérer le ZPL
+    attributes = ProductAttributeValueSerializer(source='attribute_values', many=True, read_only=True)
     zpl_template = serializers.SerializerMethodField()
 
     class Meta:
         model = Product
-        fields = ['id', 'sku', 'name', 'category', 'category_name', 'unit_symbol', 'input_mode', 'zpl_template']
+        fields = [
+            'id', 'sku', 'name', 'category', 'category_name', 
+            'unit_symbol', 'input_mode', 'attributes', 'zpl_template'
+        ]
 
     def get_zpl_template(self, obj):
-        # 1. Si le produit a un template spécifique
         if obj.custom_template:
             return obj.custom_template.zpl_code
-        # 2. Sinon, si sa catégorie a un template par défaut
         if obj.category and obj.category.default_template:
             return obj.category.default_template.zpl_code
-        # 3. Secours : Si aucun template n'est configuré dans l'admin, on renvoie un modèle de base
         return (
             "^XA\n"
             "^CF0,50^FO50,40^FD{NAME}^FS\n"
@@ -41,6 +58,8 @@ class ProductSerializer(serializers.ModelSerializer):
             "^FO50,270^BY3^BCN,80,Y,N,N^FD{SKU}^FS\n"
             "^XZ"
         )
+
+
 class ConfigurationImprimanteSerializer(serializers.ModelSerializer):
     nom = serializers.CharField(source='nom_emplacement', read_only=True)
     ip_address = serializers.CharField(source='adresse_ip', read_only=True)
@@ -49,3 +68,15 @@ class ConfigurationImprimanteSerializer(serializers.ModelSerializer):
     class Meta:
         model = ConfigurationImprimante
         fields = ['id', 'nom', 'code_poste', 'ip_address', 'port', 'mode_connexion']
+
+
+class ClientSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Client
+        fields = ['id', 'nom', 'numero_client']
+
+
+class ImpressionEtiquetteSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ImpressionEtiquette
+        fields = '__all__'
