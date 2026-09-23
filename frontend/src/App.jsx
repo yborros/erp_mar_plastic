@@ -36,14 +36,14 @@ function App() {
   const [clientSearchTerm, setClientSearchTerm] = useState('') 
   const [selectedTemplateId, setSelectedTemplateId] = useState('')
 
-  // Champs Carton Expédition
-  const [cartonTitre, setCartonTitre] = useState('MOUCHOIRS – Collection Marbre Noir')
-  const [cartonType, setCartonType] = useState('2 Plis 70 mouchoirs Ultra Doux')
-  const [cartonQty, setCartonQty] = useState('6 Packs x 4 units')
-  const [cartonDest, setCartonDest] = useState('SUISSE')
-  const [cartonPoidsNet, setCartonPoidsNet] = useState('3.900kg')
-  const [cartonPoidsBrut, setCartonPoidsBrut] = useState('3.250kg')
-
+ // Champs Carton Expédition (vides par défaut ou saisis à la volée)
+  const [cartonTitre, setCartonTitre] = useState('')
+  const [cartonType, setCartonType] = useState('')
+  const [cartonQty, setCartonQty] = useState('')
+  const [cartonDest, setCartonDest] = useState('')
+  const [cartonPoidsNet, setCartonPoidsNet] = useState('')
+  const [cartonPoidsBrut, setCartonPoidsBrut] = useState('')
+  
   // Champs Bobine
   const [selectedMatiere, setSelectedMatiere] = useState('PE')
   const [laize, setLaize] = useState('50')
@@ -251,17 +251,18 @@ function App() {
       template_id: selectedTemplateId || null,
       is_free_input: !selectedProduct,
       product_id: selectedProduct ? selectedProduct.id : null,
-      custom_name: isCartonTemplate ? cartonTitre : designationVolante,
+      custom_name: cartonTitre || (selectedProduct ? selectedProduct.name : designationVolante),
       
-      type_details: cartonType,
-      qty_details: cartonQty,
-      destination: selectedClient ? selectedClient.nom : cartonDest,
-      poids_net: cartonPoidsNet,
-      poids_brut: cartonPoidsBrut,
+      // Données colis / carton
+      type_details: cartonType || null,
+      qty_details: cartonQty || null,
+      destination: selectedClient ? selectedClient.nom : (cartonDest || null),
+      poids_net: cartonPoidsNet ? (cartonPoidsNet.includes('kg') ? cartonPoidsNet : `${cartonPoidsNet} kg`) : null,
+      poids_brut: cartonPoidsBrut ? (cartonPoidsBrut.includes('kg') ? cartonPoidsBrut : `${cartonPoidsBrut} kg`) : null,
 
       matiere: selectedMatiere,
-      laize: laize,
-      micron: micron,
+      laize: !selectedProduct ? laize : null,
+      micron: !selectedProduct ? micron : null,
       value: currentInputValue,
       unit_str: selectedProduct ? selectedProduct.unit_symbol : uniteVolante,
       colis_count: finalColisCount,

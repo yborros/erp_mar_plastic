@@ -173,11 +173,10 @@ class ImpressionEtiquette(models.Model):
     colis_index = models.IntegerField(default=1, verbose_name="Colis N°")
     colis_total = models.IntegerField(default=1, verbose_name="Total Colis")
     
-    # --- Informations Produit / Client / Destination ---
+    # --- Informations Produit / Client 
     produit_nom = models.CharField(max_length=255, verbose_name="Désignation Produit")
     sku = models.CharField(max_length=100, blank=True, null=True, verbose_name="SKU / Réf")
     client_nom = models.CharField(max_length=255, blank=True, null=True, verbose_name="Nom Client")
-    destination = models.CharField(max_length=100, blank=True, null=True, verbose_name="Destination")
     
     # --- Caractéristiques Techniques (Bobines / Sachets) ---
     laize = models.CharField(max_length=20, blank=True, null=True, verbose_name="Laize (cm)")

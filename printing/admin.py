@@ -50,14 +50,13 @@ class ImpressionEtiquetteAdmin(admin.ModelAdmin):
         'date_impression',
         'produit_nom',
         'client_nom',
-        'destination',
         'poids_net',
         'poids_brut',
         'code_poste',
     )
 
     # Filtres latéraux pratiques
-    list_filter = ('code_poste', 'destination', 'date_impression', 'unite')
+    list_filter = ('code_poste', 'date_impression', 'unite')
 
     # Barre de recherche rapide
     search_fields = ('numero_lot', 'produit_nom', 'sku', 'client_nom')
