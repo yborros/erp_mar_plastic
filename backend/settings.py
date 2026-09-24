@@ -45,6 +45,7 @@ INSTALLED_APPS = [
     'corsheaders',
     'rest_framework', 
     'printing',
+    'catalog',
 ]
 
 MIDDLEWARE = [

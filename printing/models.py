@@ -1,30 +1,31 @@
 from django.db import models
 from django.utils import timezone
 from django.core.exceptions import ValidationError
+from catalog.models import Category, Product, AttributeDefinition, ProductAttributeValue, Unit
 import re
 
 
-class Category(models.Model):
-    """Ex: 'Sachets', 'Bobines', 'Mandrins', 'Cartons Expédition'"""
-    name = models.CharField(max_length=100, unique=True, verbose_name="Nom de la catégorie")
-    description = models.TextField(blank=True, null=True, verbose_name="Description")
+# class Category(models.Model):
+#     """Ex: 'Sachets', 'Bobines', 'Mandrins', 'Cartons Expédition'"""
+#     name = models.CharField(max_length=100, unique=True, verbose_name="Nom de la catégorie")
+#     description = models.TextField(blank=True, null=True, verbose_name="Description")
 
-    # Template d'impression par défaut pour cette famille
-    default_template = models.ForeignKey(
-        'LabelTemplate', 
-        on_delete=models.SET_NULL, 
-        null=True, 
-        blank=True, 
-        related_name="default_for_categories",
-        verbose_name="Template d'impression par défaut"
-    )
+#     # Template d'impression par défaut pour cette famille
+#     default_template = models.ForeignKey(
+#         'LabelTemplate', 
+#         on_delete=models.SET_NULL, 
+#         null=True, 
+#         blank=True, 
+#         related_name="default_for_categories",
+#         verbose_name="Template d'impression par défaut"
+#     )
 
-    def __str__(self):
-        return self.name
+#     def __str__(self):
+#         return self.name
     
-    class Meta:
-        verbose_name = "Catégorie"
-        verbose_name_plural = "Catégories"
+#     class Meta:
+#         verbose_name = "Catégorie"
+#         verbose_name_plural = "Catégories"
 
 
 class LabelTemplate(models.Model):
@@ -50,59 +51,59 @@ class LabelTemplate(models.Model):
         verbose_name_plural = "Modèles d'étiquettes"
 
 
-class AttributeDefinition(models.Model):
-    """
-    Définition d'une caractéristique technique avec contrôle strict du type de saisie.
-    """
-    DATA_TYPE_CHOICES = [
-        ('NUMBER', 'Nombre décimal ou entier (ex: 50, 42.5)'),
-        ('INTEGER', 'Nombre entier strict (ex: 500, 12)'),
-        ('CHOICE', 'Liste déroulante / Choix fermé (défini dans options)'),
-        ('TEXT', 'Texte libre'),
-        ('BOOLEAN', 'Oui / Non'),
-    ]
+# class AttributeDefinition(models.Model):
+#     """
+#     Définition d'une caractéristique technique avec contrôle strict du type de saisie.
+#     """
+#     DATA_TYPE_CHOICES = [
+#         ('NUMBER', 'Nombre décimal ou entier (ex: 50, 42.5)'),
+#         ('INTEGER', 'Nombre entier strict (ex: 500, 12)'),
+#         ('CHOICE', 'Liste déroulante / Choix fermé (défini dans options)'),
+#         ('TEXT', 'Texte libre'),
+#         ('BOOLEAN', 'Oui / Non'),
+#     ]
 
-    category = models.ForeignKey(
-        Category, 
-        on_delete=models.CASCADE, 
-        related_name='attribute_definitions',
-        verbose_name="Catégorie"
-    )
-    name = models.CharField(max_length=100, verbose_name="Nom de la caractéristique")
-    data_type = models.CharField(
-        max_length=20, 
-        choices=DATA_TYPE_CHOICES, 
-        default='NUMBER', 
-        verbose_name="Type de donnée"
-    )
-    unit = models.CharField(
-        max_length=20, 
-        blank=True, 
-        null=True, 
-        verbose_name="Unité (ex: cm, µm, mm, kg)"
-    )
-    options = models.CharField(
-        max_length=500, 
-        blank=True, 
-        null=True, 
-        help_text="Pour les listes de choix, séparez par des virgules (ex: PEBD, PEHD, PP, CPP)",
-        verbose_name="Options autorisées"
-    )
+#     category = models.ForeignKey(
+#         Category, 
+#         on_delete=models.CASCADE, 
+#         related_name='attribute_definitions',
+#         verbose_name="Catégorie"
+#     )
+#     name = models.CharField(max_length=100, verbose_name="Nom de la caractéristique")
+#     data_type = models.CharField(
+#         max_length=20, 
+#         choices=DATA_TYPE_CHOICES, 
+#         default='NUMBER', 
+#         verbose_name="Type de donnée"
+#     )
+#     unit = models.CharField(
+#         max_length=20, 
+#         blank=True, 
+#         null=True, 
+#         verbose_name="Unité (ex: cm, µm, mm, kg)"
+#     )
+#     options = models.CharField(
+#         max_length=500, 
+#         blank=True, 
+#         null=True, 
+#         help_text="Pour les listes de choix, séparez par des virgules (ex: PEBD, PEHD, PP, CPP)",
+#         verbose_name="Options autorisées"
+#     )
 
-    class Meta:
-        verbose_name = "Définition de caractéristique"
-        verbose_name_plural = "Définitions de caractéristiques"
-        unique_together = ('category', 'name')
+#     class Meta:
+#         verbose_name = "Définition de caractéristique"
+#         verbose_name_plural = "Définitions de caractéristiques"
+#         unique_together = ('category', 'name')
 
-    def get_options_list(self):
-        """Retourne la liste propre des choix découpés par virgule."""
-        if not self.options:
-            return []
-        return [opt.strip() for opt in self.options.split(',') if opt.strip()]
+#     def get_options_list(self):
+#         """Retourne la liste propre des choix découpés par virgule."""
+#         if not self.options:
+#             return []
+#         return [opt.strip() for opt in self.options.split(',') if opt.strip()]
 
-    def __str__(self):
-        unit_str = f" [{self.unit}]" if self.unit else ""
-        return f"{self.name}{unit_str} ({self.get_data_type_display()})"
+#     def __str__(self):
+#         unit_str = f" [{self.unit}]" if self.unit else ""
+#         return f"{self.name}{unit_str} ({self.get_data_type_display()})"
     
 class Client(models.Model):
     nom = models.CharField(max_length=100, unique=True)
@@ -116,25 +117,25 @@ class Client(models.Model):
         verbose_name_plural = "Clients"
 
 
-class Unit(models.Model):
-    INPUT_MODES = [
-        ('STANDARD', "Standard (Quantité simple)"),
-        ('WEIGHT', "Poids (Demander le poids)"),
-        ('PACK_COUNT', "Conditionnement (Unités par carton)"),
-    ]
-    name = models.CharField(max_length=50, verbose_name="Nom de l'unité")
-    abbreviation = models.CharField(max_length=10, unique=True, verbose_name="Symbole (ex: kg, U)")
-    input_mode = models.CharField(max_length=20, choices=INPUT_MODES, default='STANDARD')
+# class Unit(models.Model):
+#     INPUT_MODES = [
+#         ('STANDARD', "Standard (Quantité simple)"),
+#         ('WEIGHT', "Poids (Demander le poids)"),
+#         ('PACK_COUNT', "Conditionnement (Unités par carton)"),
+#     ]
+#     name = models.CharField(max_length=50, verbose_name="Nom de l'unité")
+#     abbreviation = models.CharField(max_length=10, unique=True, verbose_name="Symbole (ex: kg, U)")
+#     input_mode = models.CharField(max_length=20, choices=INPUT_MODES, default='STANDARD')
     
-    base_unit = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='sub_units')
-    conversion_factor = models.DecimalField(max_digits=12, decimal_places=6, default=1.0)
+#     base_unit = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='sub_units')
+#     conversion_factor = models.DecimalField(max_digits=12, decimal_places=6, default=1.0)
 
-    def __str__(self):
-        return f"{self.name} ({self.abbreviation})"
+#     def __str__(self):
+#         return f"{self.name} ({self.abbreviation})"
 
-    class Meta:
-        verbose_name = "Unité"
-        verbose_name_plural = "Unités"
+#     class Meta:
+#         verbose_name = "Unité"
+#         verbose_name_plural = "Unités"
 
 
 class Workstation(models.Model):
@@ -150,96 +151,96 @@ class Workstation(models.Model):
         verbose_name_plural = "Postes de travail"
 
 
-class Product(models.Model):
-    name = models.CharField(max_length=200, verbose_name="Nom du produit")
-    sku = models.CharField(max_length=100, unique=True, verbose_name="Référence / SKU")
-    category = models.ForeignKey(Category, on_delete=models.SET_NULL, null=True, verbose_name="Catégorie", related_name="products")
-    unit = models.ForeignKey(Unit, on_delete=models.PROTECT, verbose_name="Unité de mesure")
+# # class Product(models.Model):
+#     name = models.CharField(max_length=200, verbose_name="Nom du produit")
+#     sku = models.CharField(max_length=100, unique=True, verbose_name="Référence / SKU")
+#     category = models.ForeignKey(Category, on_delete=models.SET_NULL, null=True, verbose_name="Catégorie", related_name="products")
+#     unit = models.ForeignKey(Unit, on_delete=models.PROTECT, verbose_name="Unité de mesure")
     
-    custom_template = models.ForeignKey(
-        LabelTemplate, 
-        on_delete=models.SET_NULL, 
-        null=True, 
-        blank=True, 
-        related_name="custom_products",
-        verbose_name="Template spécifique (écrase celui de la catégorie)"
-    )
+#     custom_template = models.ForeignKey(
+#         LabelTemplate, 
+#         on_delete=models.SET_NULL, 
+#         null=True, 
+#         blank=True, 
+#         related_name="custom_products",
+#         verbose_name="Template spécifique (écrase celui de la catégorie)"
+#     )
 
-    def __str__(self):
-        return f"[{self.sku}] {self.name}"
+#     def __str__(self):
+#         return f"[{self.sku}] {self.name}"
 
-    class Meta:
-        verbose_name = "Produit"
-        verbose_name_plural = "Produits"
+#     class Meta:
+#         verbose_name = "Produit"
+#         verbose_name_plural = "Produits"
 
 
-class ProductAttributeValue(models.Model):
-    product = models.ForeignKey(
-        Product, 
-        on_delete=models.CASCADE, 
-        related_name='attribute_values',
-        verbose_name="Produit"
-    )
-    attribute = models.ForeignKey(
-        AttributeDefinition, 
-        on_delete=models.CASCADE, 
-        verbose_name="Caractéristique"
-    )
-    valeur = models.CharField(max_length=255, verbose_name="Valeur")
+# # class ProductAttributeValue(models.Model):
+#     product = models.ForeignKey(
+#         Product, 
+#         on_delete=models.CASCADE, 
+#         related_name='attribute_values',
+#         verbose_name="Produit"
+#     )
+#     attribute = models.ForeignKey(
+#         AttributeDefinition, 
+#         on_delete=models.CASCADE, 
+#         verbose_name="Caractéristique"
+#     )
+#     valeur = models.CharField(max_length=255, verbose_name="Valeur")
 
-    class Meta:
-        verbose_name = "Caractéristique du produit"
-        verbose_name_plural = "Caractéristiques du produit"
-        unique_together = ('product', 'attribute')
+#     class Meta:
+#         verbose_name = "Caractéristique du produit"
+#         verbose_name_plural = "Caractéristiques du produit"
+#         unique_together = ('product', 'attribute')
 
-    def clean(self):
-        """Validation stricte selon le type de donnée."""
-        if not self.valeur:
-            return
+#     def clean(self):
+#         """Validation stricte selon le type de donnée."""
+#         if not self.valeur:
+#             return
 
-        val = self.valeur.strip()
-        dtype = self.attribute.data_type
+#         val = self.valeur.strip()
+#         dtype = self.attribute.data_type
 
-        if dtype == 'NUMBER':
-            val_clean = val.replace(',', '.')
-            try:
-                float(val_clean)
-                self.valeur = val_clean
-            except ValueError:
-                raise ValidationError({
-                    'valeur': f"Pour '{self.attribute.name}', entrez un nombre valide (ex: 45 ou 45.5)."
-                })
+#         if dtype == 'NUMBER':
+#             val_clean = val.replace(',', '.')
+#             try:
+#                 float(val_clean)
+#                 self.valeur = val_clean
+#             except ValueError:
+#                 raise ValidationError({
+#                     'valeur': f"Pour '{self.attribute.name}', entrez un nombre valide (ex: 45 ou 45.5)."
+#                 })
 
-        elif dtype == 'INTEGER':
-            if not re.match(r'^-?\d+$', val):
-                raise ValidationError({
-                    'valeur': f"Pour '{self.attribute.name}', entrez un nombre entier sans décimale."
-                })
+#         elif dtype == 'INTEGER':
+#             if not re.match(r'^-?\d+$', val):
+#                 raise ValidationError({
+#                     'valeur': f"Pour '{self.attribute.name}', entrez un nombre entier sans décimale."
+#                 })
 
-        elif dtype == 'CHOICE':
-            allowed = self.attribute.get_options_list()
-            # Vérification insensible à la casse
-            matched = next((opt for opt in allowed if opt.lower() == val.lower()), None)
-            if matched:
-                self.valeur = matched  # Enregistre avec la casse standardisée
-            else:
-                options_str = ", ".join(allowed)
-                raise ValidationError({
-                    'valeur': f"Valeur invalide pour '{self.attribute.name}'. Choix possibles : {options_str}"
-                })
+#         elif dtype == 'CHOICE':
+#             allowed = self.attribute.get_options_list()
+#             # Vérification insensible à la casse
+#             matched = next((opt for opt in allowed if opt.lower() == val.lower()), None)
+#             if matched:
+#                 self.valeur = matched  # Enregistre avec la casse standardisée
+#             else:
+#                 options_str = ", ".join(allowed)
+#                 raise ValidationError({
+#                     'valeur': f"Valeur invalide pour '{self.attribute.name}'. Choix possibles : {options_str}"
+#                 })
 
-        elif dtype == 'BOOLEAN':
-            if val.lower() not in ['true', 'false', '1', '0', 'oui', 'non', 'o', 'n']:
-                raise ValidationError({
-                    'valeur': f"Pour '{self.attribute.name}', choisissez 'Oui' ou 'Non'."
-                })
+#         elif dtype == 'BOOLEAN':
+#             if val.lower() not in ['true', 'false', '1', '0', 'oui', 'non', 'o', 'n']:
+#                 raise ValidationError({
+#                     'valeur': f"Pour '{self.attribute.name}', choisissez 'Oui' ou 'Non'."
+#                 })
 
-    def save(self, *args, **kwargs):
-        self.full_clean()
-        super().save(*args, **kwargs)
+#     def save(self, *args, **kwargs):
+#         self.full_clean()
+#         super().save(*args, **kwargs)
 
-    def __str__(self):
-        return f"{self.attribute.name}: {self.valeur}"
+#     def __str__(self):
+#         return f"{self.attribute.name}: {self.valeur}"
 
 class PrintJob(models.Model):
     product = models.ForeignKey(Product, on_delete=models.PROTECT)
