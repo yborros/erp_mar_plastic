@@ -28,8 +28,8 @@ DEBUG = True
 ALLOWED_HOSTS = [
     '127.0.0.1',
     'localhost',
-    '.tailscale.net',  # Autorise les noms de domaine Tailscale
-    '100.99.79.99',           # Autorise toutes les IPs de ton réseau Tailscale
+    '.tailscale.net',   # Autorise les noms de domaine Tailscale
+    '100.99.79.99',     # Autorise toutes les IPs de ton réseau Tailscale
     '*',
 ]
 
@@ -46,6 +46,8 @@ INSTALLED_APPS = [
     'rest_framework', 
     'printing',
     'catalog',
+    'production',
+    'stock',
 ]
 
 MIDDLEWARE = [
@@ -71,6 +73,7 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                'django.template.context_processors.media',
             ],
         },
     },
@@ -125,5 +128,11 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
+
+# ==============================================================================
+# FICHIERS MÉDIAS UPLOADÉS (PLANS TECHNIQUES, CROQUIS, DOCUMENTS)
+# ==============================================================================
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
 
 CORS_ALLOW_ALL_ORIGINS = True

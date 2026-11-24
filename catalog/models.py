@@ -13,7 +13,13 @@ class Unit(models.Model):
     abbreviation = models.CharField(max_length=10, unique=True, verbose_name="Symbole (ex: kg, U)")
     input_mode = models.CharField(max_length=20, choices=INPUT_MODES, default='STANDARD')
     
-    base_unit = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='sub_units')
+    base_unit = models.ForeignKey(
+        'self', 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True, 
+        related_name='sub_units'
+    )
     conversion_factor = models.DecimalField(max_digits=12, decimal_places=6, default=1.0)
 
     class Meta:
@@ -26,11 +32,23 @@ class Unit(models.Model):
 
 
 class Category(models.Model):
-    """Ex: 'Sachets', 'Bobines', 'Mandrins', 'Cartons Expédition'"""
-    name = models.CharField(max_length=100, unique=True, verbose_name="Nom de la catégorie")
+    """Ex: 'Emballages & Consommables' (mère), 'Cartons' (fille), 'Bobines' (mère/fille)"""
+    name = models.CharField(max_length=100, verbose_name="Nom de la catégorie")
+    parent = models.ForeignKey(
+        'self',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='subcategories',
+        verbose_name="Catégorie parente (mère)"
+    )
     description = models.TextField(blank=True, null=True, verbose_name="Description")
-
-    # Lien vers le modèle d'étiquette ZPL défini dans l'app printing
+    
+    is_printable = models.BooleanField(
+        default=True,
+        verbose_name="Actif pour l'étiquetage atelier",
+        help_text="Décochez pour masquer cette catégorie du catalogue d'étiquetage (ex: Cartons, Consommables, Matières)"
+    )
     default_template = models.ForeignKey(
         'printing.LabelTemplate', 
         on_delete=models.SET_NULL, 
@@ -44,14 +62,30 @@ class Category(models.Model):
         db_table = 'printing_category'
         verbose_name = "Catégorie"
         verbose_name_plural = "Catégories"
+        unique_together = ('parent', 'name')
+
+    def get_full_name(self):
+        """Affiche l'arborescence (ex: Emballages > Cartons)."""
+        if self.parent:
+            return f"{self.parent.get_full_name()} > {self.name}"
+        return self.name
+
+    def get_all_attribute_definitions(self):
+        """Récupère les caractéristiques de la catégorie et de ses parents sans doublon."""
+        attrs_dict = {attr.id: attr for attr in self.attribute_definitions.all()}
+        if self.parent:
+            for parent_attr in self.parent.get_all_attribute_definitions():
+                if parent_attr.id not in attrs_dict:
+                    attrs_dict[parent_attr.id] = parent_attr
+        return list(attrs_dict.values())
 
     def __str__(self):
-        return self.name
+        return self.get_full_name()
 
 
 class AttributeDefinition(models.Model):
     """
-    Définition d'une caractéristique technique avec contrôle strict du type de saisie.
+    Définition d'une caractéristique technique attachée à une Catégorie.
     """
     DATA_TYPE_CHOICES = [
         ('NUMBER', 'Nombre décimal ou entier (ex: 50, 42.5)'),
@@ -74,18 +108,24 @@ class AttributeDefinition(models.Model):
         default='NUMBER', 
         verbose_name="Type de donnée"
     )
-    unit = models.CharField(
-        max_length=20, 
-        blank=True, 
+    unit = models.ForeignKey(
+        Unit, 
+        on_delete=models.SET_NULL, 
         null=True, 
-        verbose_name="Unité (ex: cm, µm, mm, kg)"
+        blank=True, 
+        verbose_name="Unité de mesure"
     )
     options = models.CharField(
         max_length=500, 
         blank=True, 
         null=True, 
-        help_text="Pour les listes de choix, séparez par des virgules (ex: PEBD, PEHD, PP, CPP)",
+        help_text="Pour les choix, séparez par des virgules (ex: PEBD, PEHD, PP, CPP)",
         verbose_name="Options autorisées"
+    )
+    visible_pesee = models.BooleanField(
+        default=True,
+        verbose_name="Visible au poste de pesée / atelier",
+        help_text="Cochez pour demander la saisie de cette caractéristique à l'employé lors de la pesée bobine."
     )
 
     class Meta:
@@ -100,7 +140,7 @@ class AttributeDefinition(models.Model):
         return [opt.strip() for opt in self.options.split(',') if opt.strip()]
 
     def __str__(self):
-        unit_str = f" [{self.unit}]" if self.unit else ""
+        unit_str = f" [{self.unit.abbreviation}]" if self.unit else ""
         return f"{self.name}{unit_str} ({self.get_data_type_display()})"
 
 
@@ -119,7 +159,6 @@ class Product(models.Model):
         on_delete=models.PROTECT, 
         verbose_name="Unité de mesure"
     )
-    
     custom_template = models.ForeignKey(
         'printing.LabelTemplate', 
         on_delete=models.SET_NULL, 
@@ -129,10 +168,73 @@ class Product(models.Model):
         verbose_name="Template spécifique (écrase celui de la catégorie)"
     )
 
+    # --- SUIVI DES STOCKS ---
+    stock_actuel = models.IntegerField(default=0, verbose_name="Stock disponible")
+    seuil_alerte = models.IntegerField(default=50, verbose_name="Seuil d'alerte stock bas")
+
+    # --- EMBALLAGE / SUPPORT D'EXPÉDITION PAR DÉFAUT ---
+    default_packaging = models.ForeignKey(
+        'self',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='packaged_items',
+        verbose_name="Emballage / Support par défaut",
+        help_text="Carton, Palette, Sachet ou Mandrin associé spécifiquement à cet article"
+    )
+    is_default_packaging = models.BooleanField(
+        default=False,
+        verbose_name="Est l'emballage standard par défaut de l'usine",
+        help_text="Cochez pour définir cet emballage comme celui proposé d'office si aucun n'est spécifié."
+    )
+    
     class Meta:
         db_table = 'printing_product'
         verbose_name = "Produit"
         verbose_name_plural = "Produits"
+
+    @property
+    def is_low_stock(self):
+        return self.stock_actuel <= self.seuil_alerte
+
+    def decrement_stock(self, quantity=1):
+        self.stock_actuel = max(0, self.stock_actuel - quantity)
+        self.save()
+
+    def save(self, *args, **kwargs):
+        # Unicité stricte de l'emballage standard usine
+        if self.is_default_packaging:
+            Product.objects.filter(is_default_packaging=True).exclude(pk=self.pk).update(is_default_packaging=False)
+        super().save(*args, **kwargs)
+
+    def apply_movement(self, quantity, movement_type='RECEPTION', note=""):
+        """Met à jour le stock et journalise l'événement dans le module stock."""
+        from stock.models import StockMovement
+        self.stock_actuel += quantity
+        if self.stock_actuel < 0:
+            self.stock_actuel = 0
+        self.save()
+        return StockMovement.objects.create(
+            product=self,
+            movement_type=movement_type,
+            quantity=quantity,
+            stock_after=self.stock_actuel,
+            note=note
+        )
+
+    def set_inventory_stock(self, new_total, note="Inventaire"):
+        """Recalibre le stock lors d'un inventaire physique."""
+        from stock.models import StockMovement
+        diff = new_total - self.stock_actuel
+        self.stock_actuel = new_total
+        self.save()
+        return StockMovement.objects.create(
+            product=self,
+            movement_type='ADJUSTMENT',
+            quantity=diff,
+            stock_after=self.stock_actuel,
+            note=note
+        )
 
     def __str__(self):
         return f"[{self.sku}] {self.name}"
@@ -204,3 +306,59 @@ class ProductAttributeValue(models.Model):
 
     def __str__(self):
         return f"{self.attribute.name}: {self.valeur}"
+
+
+class DrawingType(models.Model):
+    name = models.CharField(max_length=100, unique=True, verbose_name="Type de croquis / opération")
+    code = models.SlugField(
+        max_length=50, 
+        unique=True, 
+        help_text="Identifiant court (ex: soudure, impression, extrusion)"
+    )
+
+    class Meta:
+        verbose_name = "Type de plan / croquis"
+        verbose_name_plural = "Types de plans / croquis"
+        ordering = ['name']
+
+    def __str__(self):
+        return self.name
+
+
+class ProductDrawing(models.Model):
+    product = models.ForeignKey(
+        Product, 
+        on_delete=models.CASCADE, 
+        related_name='drawings', 
+        verbose_name="Produit"
+    )
+    drawing_type = models.ForeignKey(
+        DrawingType, 
+        on_delete=models.PROTECT, 
+        related_name='product_drawings',
+        verbose_name="Type d'opération"
+    )
+    title = models.CharField(
+        max_length=150, 
+        blank=True, 
+        verbose_name="Titre / Référence du plan",
+        help_text="Ex: Plan soudure de fond lèvre 20mm, Cliché 2 couleurs recto"
+    )
+    file = models.FileField(
+        upload_to='catalog/drawings/%Y/%m/', 
+        verbose_name="Fichier du plan (Image ou PDF)"
+    )
+    instructions = models.TextField(
+        blank=True, 
+        null=True, 
+        verbose_name="Consignes machine spécifiques",
+        help_text="Consignes à imprimer sur la fiche atelier pour cette étape"
+    )
+
+    class Meta:
+        verbose_name = "Croquis technique du produit"
+        verbose_name_plural = "Croquis techniques du produit"
+        unique_together = ('product', 'drawing_type')
+
+    def __str__(self):
+        return f"{self.product.sku} - {self.drawing_type.name}"

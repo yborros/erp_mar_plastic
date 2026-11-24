@@ -1,0 +1,4 @@
+[2026-09-25 09:18:59.067033] Erreur DB: ImpressionEtiquette() got unexpected keyword arguments: 'colis_count'
+[2026-09-25 09:19:27.796748] Erreur DB: ImpressionEtiquette() got unexpected keyword arguments: 'colis_count'
+[2026-09-25 09:25:31.363477] Erreur DB: ImpressionEtiquette() got unexpected keyword arguments: 'colis_count'
+[2026-09-25 09:26:08.289680] Erreur DB: ImpressionEtiquette() got unexpected keyword arguments: 'colis_count'
